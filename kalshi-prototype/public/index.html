@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalshi Market Data</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Kalshi Market Price Data</h1>
+
+    <div id="market-input">
+        <label for="marketId">Enter Market ID (e.g., 0x77d130a2f4c45a7c2930263f35032a9c375531d0):</label>
+        <input type="text" id="marketId" value="0x77d130a2f4c45a7c2930263f35032a9c375531d0">
+        <button id="fetchDataButton">Fetch Data</button>
+    </div>
+
+    <h2>Raw Market Details:</h2>
+    <pre id="rawData"></pre>
+
+    <h2>Price Visualization (Candles):</h2>
+    <div class="chart-container">
+        <canvas id="priceChart"></canvas>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
