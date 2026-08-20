@@ -1,0 +1,669 @@
+/* ---------------------------------------------------------------------------
+   A deliberately single-look design: this is an arcade cabinet, so it's dark
+   everywhere rather than following the viewer's theme.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --bg: #070a10;
+  --bg-raised: #0e1420;
+  --bg-inset: #060910;
+  --panel: #121a28;
+  --line: #223046;
+  --line-bright: #33455f;
+
+  --text: #e8eef7;
+  --text-dim: #8aa0b8;
+  --text-faint: #5b6d84;
+
+  --neon: #00e5ff;
+  --neon-soft: rgba(0, 229, 255, 0.16);
+  --hot: #ff2e88;
+  --gold: #ffb020;
+  --good: #2ee6a8;
+  --bad: #ff5c5c;
+
+  --radius: 14px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  background-image:
+    radial-gradient(1000px 600px at 15% -10%, rgba(0, 229, 255, 0.09), transparent 60%),
+    radial-gradient(900px 600px at 90% 0%, rgba(255, 46, 136, 0.08), transparent 60%);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+.shell {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 32px 20px 80px;
+}
+
+/* --- Masthead ------------------------------------------------------------ */
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.wordmark {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin: 0;
+}
+
+.wordmark span {
+  color: var(--neon);
+  text-shadow: 0 0 22px var(--neon-soft);
+}
+
+.tagline {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin: 0 0 26px;
+}
+
+/* --- Banners ------------------------------------------------------------- */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+}
+
+.banner.warn {
+  border-color: rgba(255, 176, 32, 0.35);
+  background: rgba(255, 176, 32, 0.07);
+  color: #ffd483;
+}
+
+.banner.bad {
+  border-color: rgba(255, 92, 92, 0.4);
+  background: rgba(255, 92, 92, 0.08);
+  color: #ffb3b3;
+}
+
+/* --- The cabinet --------------------------------------------------------- */
+
+.cabinet {
+  background: linear-gradient(180deg, var(--bg-raised), #0a0f18);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 22px;
+  box-shadow:
+    0 30px 70px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* Tumbler chips above the main window */
+.tumblers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.tumbler {
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-height: 62px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.tumbler .k {
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.tumbler .v {
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tumbler.live .v {
+  color: var(--neon);
+}
+
+/* The reel window */
+.window {
+  position: relative;
+  height: 168px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: inset 0 14px 26px rgba(0, 0, 0, 0.7), inset 0 -14px 26px rgba(0, 0, 0, 0.7);
+}
+
+/* Payline across the middle of the window */
+.window::after {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--hot), transparent);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.strip {
+  position: absolute;
+  inset: 0 0 auto;
+  will-change: transform;
+}
+
+.slot {
+  height: 168px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 26px;
+  gap: 8px;
+}
+
+.slot .q {
+  font-size: 21px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.slot .sub {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+}
+
+.spinning .strip {
+  filter: blur(0.6px);
+}
+
+.idle-slot {
+  color: var(--text-faint);
+  font-size: 15px;
+}
+
+/* --- Controls ------------------------------------------------------------ */
+
+.controls {
+  margin-top: 18px;
+  display: grid;
+  gap: 16px;
+}
+
+.field .label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--line-bright);
+  color: var(--text);
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--neon-soft);
+  border-color: var(--neon);
+  color: var(--neon);
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.bet-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bet-input {
+  display: flex;
+  align-items: center;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 12px;
+}
+
+.bet-input span {
+  color: var(--text-faint);
+  font-family: var(--mono);
+}
+
+.bet-input input {
+  width: 92px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 20px;
+  font-family: var(--mono);
+  padding: 10px 6px;
+  outline: none;
+}
+
+.bet-input input::-webkit-outer-spin-button,
+.bet-input input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+/* --- The lever ----------------------------------------------------------- */
+
+.lever {
+  width: 100%;
+  padding: 17px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #04202a;
+  background: linear-gradient(180deg, #6df4ff, var(--neon));
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 8px 26px rgba(0, 229, 255, 0.28);
+  transition: transform 0.1s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.lever:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 10px 34px rgba(0, 229, 255, 0.4);
+}
+
+.lever:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.lever:disabled {
+  background: var(--panel);
+  color: var(--text-faint);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.lever.hot {
+  background: linear-gradient(180deg, #ff6aa9, var(--hot));
+  color: #2a0413;
+  box-shadow: 0 8px 26px rgba(255, 46, 136, 0.3);
+}
+
+.lever.hot:hover:not(:disabled) {
+  box-shadow: 0 10px 34px rgba(255, 46, 136, 0.42);
+}
+
+/* --- Result -------------------------------------------------------------- */
+
+.result {
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.result-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.tier-badge {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-weight: 800;
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+
+.points {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--gold);
+  font-weight: 700;
+}
+
+/* A fixed column count so the cells always fill complete rows — auto-fit left
+   an orphan row with the gap colour showing through as a stray block. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--line);
+}
+
+.cell {
+  background: var(--panel);
+  padding: 13px 16px;
+}
+
+.cell .k {
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.cell .v {
+  font-family: var(--mono);
+  font-size: 17px;
+  margin-top: 5px;
+  font-weight: 600;
+}
+
+.cell .v.good {
+  color: var(--good);
+}
+
+.notes {
+  padding: 12px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.note {
+  font-size: 11px;
+  background: rgba(255, 176, 32, 0.1);
+  border: 1px solid rgba(255, 176, 32, 0.28);
+  color: var(--gold);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.btn {
+  padding: 11px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--line-bright);
+  background: var(--bg-inset);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: all 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--neon);
+  color: var(--neon);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--hot);
+  border-color: var(--hot);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  color: #fff;
+}
+
+/* --- Working / details --------------------------------------------------- */
+
+details.working {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+details.working summary {
+  cursor: pointer;
+  padding: 13px 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+details.working summary:hover {
+  color: var(--text);
+}
+
+.funnel {
+  padding: 0 18px 16px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.funnel-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.funnel-row:last-child {
+  border-bottom: none;
+}
+
+.funnel-row .n {
+  color: var(--text);
+}
+
+.rules {
+  padding: 0 18px 16px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  line-height: 1.65;
+}
+
+/* --- Scoreboard ---------------------------------------------------------- */
+
+.scoreboard {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.scoreboard b {
+  color: var(--gold);
+  font-size: 16px;
+}
+
+.wallet-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.pill {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--good);
+  background: rgba(46, 230, 168, 0.09);
+  border: 1px solid rgba(46, 230, 168, 0.3);
+  padding: 7px 12px;
+  border-radius: 999px;
+}
+
+.mode-select {
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.funder-input {
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: var(--mono);
+  min-width: 260px;
+}
+
+/* --- Standalone share card page ------------------------------------------ */
+
+.card-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 24px;
+}
+
+.share-card {
+  width: 100%;
+  max-width: 620px;
+  border-radius: 20px;
+  padding: 30px;
+  background: var(--bg-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.share-card .q {
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.share-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.footnote {
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+  max-width: 620px;
+  line-height: 1.6;
+}
+
+@media (max-width: 620px) {
+  .tumblers {
+    grid-template-columns: 1fr;
+  }
+
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .window,
+  .slot {
+    height: 190px;
+  }
+
+  .slot .q {
+    font-size: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip {
+    transition: none !important;
+  }
+
+  .spinning .strip {
+    filter: none;
+  }
+}
