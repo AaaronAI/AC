@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" role="img" aria-label="Demo placeholder: Proof">
+  <rect width="800" height="500" fill=" Dog Walk"/>
+  <text x="60" y="240" font-family="system-ui,sans-serif" font-size="140" fill="#1a7f4e:#ffffff" opacity="0.9">✓</text>
+  <text x="60" y="360" font-family="system-ui,sans-serif" font-size="52" font-weight="800" fill="#1a7f4e:#ffffff" letter-spacing="-1">Proof</text>
+  <text x="60" y="430" font-family="system-ui,sans-serif" font-size="22" fill="#1a7f4e:#ffffff" opacity="0.7">DEMO IMAGE — replace with real campaign photography</text>
+</svg>

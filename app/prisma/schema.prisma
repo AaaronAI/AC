@@ -1,0 +1,498 @@
+// SponsorThis core data model.
+//
+// Local dev/demo runs on SQLite (zero external credentials); production target is
+// Supabase Postgres — swap the datasource provider and re-run migrations.
+// SQLite does not support Prisma enums, so all state/role fields are strings whose
+// allowed values and transitions are enforced in src/lib/state-machines.ts and
+// validated with Zod at every boundary.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Identity & access ----------
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String
+  passwordHash   String
+  role           String // BUYER | SELLER | ADMIN
+  identityStatus String   @default("UNVERIFIED") // UNVERIFIED | PENDING | VERIFIED
+  isAtLeast18    Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  memberships     Membership[]
+  sellerProfile   SellerProfile?
+  buyerProfile    BuyerProfile?
+  sentMessages    Message[]         @relation("sentMessages")
+  notifications   Notification[]
+  reviewsAuthored Review[]          @relation("reviewAuthor")
+  riskFlags       RiskFlag[]
+  moderationActs  ModerationAction[] @relation("moderator")
+  auditLogs       AuditLog[]
+  referralsMade   Referral[]        @relation("referrer")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  kind      String // BRAND | AGENCY
+  website   String?
+  createdAt DateTime @default(now())
+
+  memberships Membership[]
+  briefs      Brief[]
+  campaigns   Campaign[]
+}
+
+model Membership {
+  id     String @id @default(cuid())
+  userId String
+  orgId  String
+  role   String // OWNER | MEMBER
+
+  user User         @relation(fields: [userId], references: [id])
+  org  Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([userId, orgId])
+}
+
+model BuyerProfile {
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  brandName     String
+  industry      String?
+  brandSafetyNotes String?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model SellerProfile {
+  id               String  @id @default(cuid())
+  userId           String  @unique
+  displayName      String
+  bio              String?
+  city             String
+  reliabilityScore Float   @default(0) // 0-100, computed from completion history
+  completedCount   Int     @default(0)
+  responseHours    Float?
+
+  user          User           @relation(fields: [userId], references: [id])
+  payoutAccount PayoutAccount?
+  listings      Listing[]
+  proposals     Proposal[]
+  reviews       Review[]       @relation("reviewSubject")
+}
+
+model PayoutAccount {
+  id              String  @id @default(cuid())
+  sellerProfileId String  @unique
+  provider        String  @default("mock_stripe_connect")
+  externalId      String?
+  status          String  @default("ONBOARDING") // ONBOARDING | ACTIVE | RESTRICTED
+
+  sellerProfile SellerProfile @relation(fields: [sellerProfileId], references: [id])
+  payouts       Payout[]
+}
+
+// ---------- Supply ----------
+
+model Category {
+  id       String    @id @default(cuid())
+  slug     String    @unique
+  name     String
+  listings Listing[]
+}
+
+model Listing {
+  id                 String    @id @default(cuid())
+  sellerProfileId    String
+  categoryId         String
+  title              String
+  slug               String    @unique
+  pitch              String
+  description        String
+  city               String
+  isRemote           Boolean   @default(false)
+  state              String    @default("DRAFT") // see state-machines.ts
+  basePriceCents     Int
+  audienceEstimate   String? // human-written estimate, may be null
+  audienceEvidence   String? // methodology; required if estimate present
+  venueApprovalRequired Boolean @default(false)
+  permitsRequired    Boolean   @default(false)
+  sponsorRestrictions String?
+  competingExclusions String?
+  cancellationPolicy String    @default("STANDARD") // STANDARD | FLEXIBLE | STRICT
+  proofMethod        String
+  riskLevel          String    @default("LOW") // LOW | MEDIUM | HIGH
+  customRequestsOpen Boolean   @default(true)
+  availabilityNote   String?
+  eventDate          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  seller        SellerProfile   @relation(fields: [sellerProfileId], references: [id])
+  category      Category        @relation(fields: [categoryId], references: [id])
+  packages      ListingPackage[]
+  media         ListingMedia[]
+  venueApprovals VenueApproval[]
+  permits       Permit[]
+  proposals     Proposal[]
+  campaigns     Campaign[]
+  moderationActions ModerationAction[]
+}
+
+model ListingPackage {
+  id             String  @id @default(cuid())
+  listingId      String
+  name           String
+  priceCents     Int
+  deliverables   String // newline-separated deliverable descriptions
+  exclusions     String?
+  exclusivity    String  @default("NONE") // NONE | CATEGORY | FULL
+  usageRightsDays Int    @default(30)
+  sortOrder      Int     @default(0)
+
+  listing   Listing    @relation(fields: [listingId], references: [id])
+  campaigns Campaign[]
+}
+
+model ListingMedia {
+  id        String @id @default(cuid())
+  listingId String
+  kind      String @default("IMAGE") // IMAGE | VIDEO
+  url       String
+  alt       String
+
+  listing Listing @relation(fields: [listingId], references: [id])
+}
+
+model VenueApproval {
+  id        String    @id @default(cuid())
+  listingId String
+  venueName String
+  status    String    @default("REQUIRED") // REQUIRED | REQUESTED | APPROVED | DENIED
+  notes     String?
+  updatedAt DateTime  @updatedAt
+
+  listing Listing @relation(fields: [listingId], references: [id])
+}
+
+model Permit {
+  id        String   @id @default(cuid())
+  listingId String
+  authority String
+  kind      String
+  status    String   @default("REQUIRED") // REQUIRED | FILED | GRANTED | DENIED
+  notes     String?
+  updatedAt DateTime @updatedAt
+
+  listing Listing @relation(fields: [listingId], references: [id])
+}
+
+// ---------- Demand ----------
+
+model Brief {
+  id             String   @id @default(cuid())
+  orgId          String
+  objective      String
+  audience       String
+  city           String
+  budgetCents    Int
+  targetDate     DateTime?
+  desiredOutcome String
+  restrictions   String?
+  deliverables   String?
+  status         String   @default("SUBMITTED") // SUBMITTED | MATCHING | PROPOSED | CLOSED
+  createdAt      DateTime @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id])
+  proposals Proposal[]
+}
+
+model Proposal {
+  id              String   @id @default(cuid())
+  briefId         String
+  listingId       String
+  sellerProfileId String
+  packageSummary  String
+  priceCents      Int
+  notes           String?
+  status          String   @default("SENT") // DRAFT | SENT | ACCEPTED | DECLINED | WITHDRAWN
+  createdAt       DateTime @default(now())
+
+  brief   Brief         @relation(fields: [briefId], references: [id])
+  listing Listing       @relation(fields: [listingId], references: [id])
+  seller  SellerProfile @relation(fields: [sellerProfileId], references: [id])
+  campaign Campaign?
+}
+
+// ---------- Campaigns ----------
+
+model Campaign {
+  id               String    @id @default(cuid())
+  orgId            String
+  listingId        String
+  packageId        String?
+  proposalId       String?   @unique
+  title            String
+  state            String    @default("BRIEF_SUBMITTED") // see state-machines.ts
+  priceCents       Int // package price (GMV basis)
+  buyerFeeCents    Int
+  sellerPayoutCents Int
+  platformFeeCents Int
+  scheduledFor     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  org          Organization    @relation(fields: [orgId], references: [id])
+  listing      Listing         @relation(fields: [listingId], references: [id])
+  package      ListingPackage? @relation(fields: [packageId], references: [id])
+  proposal     Proposal?       @relation(fields: [proposalId], references: [id])
+  deliverables Deliverable[]
+  proofs       ProofSubmission[]
+  agreement    Agreement?
+  payment      Payment?
+  payout       Payout?
+  dispute     Dispute?
+  reviews      Review[]
+  messages     Message[]
+  contentLicense ContentLicense?
+}
+
+model Deliverable {
+  id         String  @id @default(cuid())
+  campaignId String
+  title      String
+  detail     String?
+  status     String  @default("PENDING") // PENDING | SUBMITTED | ACCEPTED | REVISION
+  sortOrder  Int     @default(0)
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+  proofs   ProofSubmission[]
+}
+
+model ProofSubmission {
+  id            String   @id @default(cuid())
+  campaignId    String
+  deliverableId String?
+  url           String
+  caption       String
+  capturedAt    DateTime
+  submittedAt   DateTime @default(now())
+  status        String   @default("SUBMITTED") // SUBMITTED | ACCEPTED | REVISION_REQUESTED
+
+  campaign    Campaign     @relation(fields: [campaignId], references: [id])
+  deliverable Deliverable? @relation(fields: [deliverableId], references: [id])
+  revisions   Revision[]
+}
+
+model Revision {
+  id      String   @id @default(cuid())
+  proofId String
+  reason  String
+  status  String   @default("OPEN") // OPEN | RESOLVED
+  createdAt DateTime @default(now())
+
+  proof ProofSubmission @relation(fields: [proofId], references: [id])
+}
+
+model ContentLicense {
+  id          String   @id @default(cuid())
+  campaignId  String   @unique
+  scope       String   @default("ORGANIC") // ORGANIC | PAID_MEDIA
+  durationDays Int     @default(30)
+  startsAt    DateTime?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+}
+
+model Agreement {
+  id         String   @id @default(cuid())
+  campaignId String   @unique
+  version    String   @default("v1-demo")
+  text       String
+  buyerAcceptedAt  DateTime?
+  sellerAcceptedAt DateTime?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+}
+
+// ---------- Money ----------
+
+model Payment {
+  id              String   @id @default(cuid())
+  campaignId      String   @unique
+  provider        String   @default("mock_stripe_connect")
+  externalId      String?
+  status          String   @default("REQUIRES_PAYMENT") // REQUIRES_PAYMENT | AUTHORIZED | CAPTURED | PARTIALLY_REFUNDED | REFUNDED | FAILED
+  amountCents     Int // charged to buyer: price + buyer fee
+  buyerFeeCents   Int
+  platformFeeCents Int
+  processingFeeCents Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+  refunds  Refund[]
+}
+
+model Refund {
+  id          String   @id @default(cuid())
+  paymentId   String
+  amountCents Int
+  reason      String
+  createdAt   DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+}
+
+model Payout {
+  id              String    @id @default(cuid())
+  campaignId      String    @unique
+  payoutAccountId String
+  amountCents     Int
+  status          String    @default("HELD") // HELD | RELEASED | PAID | CANCELED
+  releasedAt      DateTime?
+  paidAt          DateTime?
+
+  campaign      Campaign      @relation(fields: [campaignId], references: [id])
+  payoutAccount PayoutAccount @relation(fields: [payoutAccountId], references: [id])
+}
+
+model Dispute {
+  id         String   @id @default(cuid())
+  campaignId String   @unique
+  openedBy   String // userId
+  reason     String
+  status     String   @default("OPEN") // OPEN | RESOLVED_REFUND | RESOLVED_PARTIAL | RESOLVED_RELEASE
+  resolution String?
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+}
+
+model WebhookEvent {
+  id          String   @id // provider event id — primary key gives idempotency
+  provider    String
+  kind        String
+  payload     String
+  processedAt DateTime @default(now())
+}
+
+// ---------- Community & comms ----------
+
+model Review {
+  id              String   @id @default(cuid())
+  campaignId      String
+  authorId        String
+  sellerProfileId String?
+  rating          Int
+  body            String
+  createdAt       DateTime @default(now())
+
+  campaign Campaign       @relation(fields: [campaignId], references: [id])
+  author   User           @relation("reviewAuthor", fields: [authorId], references: [id])
+  seller   SellerProfile? @relation("reviewSubject", fields: [sellerProfileId], references: [id])
+
+  @@unique([campaignId, authorId])
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  campaignId String
+  senderId   String
+  body       String
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+  sender   User     @relation("sentMessages", fields: [senderId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String
+  body      String
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// ---------- Trust, safety, growth, telemetry ----------
+
+model RiskFlag {
+  id         String   @id @default(cuid())
+  userId     String?
+  entityType String // LISTING | CAMPAIGN | USER
+  entityId   String
+  severity   String   @default("MEDIUM") // LOW | MEDIUM | HIGH
+  reason     String
+  status     String   @default("OPEN") // OPEN | CLEARED | ACTIONED
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model ModerationAction {
+  id          String   @id @default(cuid())
+  moderatorId String
+  listingId   String?
+  action      String // APPROVE | REJECT | REQUEST_CHANGES | PAUSE | BAN
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  moderator User     @relation("moderator", fields: [moderatorId], references: [id])
+  listing   Listing? @relation(fields: [listingId], references: [id])
+}
+
+model Referral {
+  id           String   @id @default(cuid())
+  referrerId   String
+  code         String   @unique
+  redeemedById String?
+  creditCents  Int      @default(25000)
+  status       String   @default("ISSUED") // ISSUED | REDEEMED | CREDITED
+  createdAt    DateTime @default(now())
+
+  referrer User @relation("referrer", fields: [referrerId], references: [id])
+}
+
+model PromoCode {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  percentOff  Int
+  maxUses     Int      @default(1)
+  usedCount   Int      @default(0)
+  expiresAt   DateTime?
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String?
+  props     String? // JSON
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+}
