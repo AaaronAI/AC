@@ -21,6 +21,7 @@ machine only ever lands on something that cleared a screen:
 | 24h volume | ≥ $5,000 | Someone else is trading it too |
 | Liquidity | ≥ $2,000 | There's a real book, not one quote |
 | Depth | ≥ 2× your bet near the touch | It can absorb you |
+| Prices crossed | ≤ 2 levels | Your order doesn't eat down the book |
 
 Bet size is part of the screen, not an afterthought — a book that's perfectly
 fine for $5 can be untradeable at $100, and the same market is judged
@@ -30,7 +31,25 @@ Surviving candidates are then picked **weighted by book health**, so the machine
 is random but not indifferent. Every spin shows its working: how many markets
 matched, how many sides were screened, and exactly which rule rejected the rest.
 
-Tune all of it in [`lib/config.ts`](lib/config.ts).
+Two of these are exposed to the player, because they're the two that change what
+you actually pay:
+
+**Widest spread (1¢ / 2¢ / 3¢ / 5¢, default 3¢).** You give up roughly half the
+spread the moment you enter. At 5¢ that's 2.5¢ a share — on a 40¢ contract, over
+6% gone before the question resolves. Tighter is stricter, and fewer markets
+qualify.
+
+**Prices crossed (1 / 2 / 3, default 2).** How far your order may eat into the
+book. One price means the whole stake fills at the best ask and slippage is zero
+by construction — if it doesn't all fit at the touch, the market is skipped. Each
+extra level means later shares cost more than the price you were quoted. This is
+the most legible depth measure available: it answers "is there enough resting at
+the touch to take all of me?" without needing a dollar figure, and it scales with
+your stake automatically.
+
+Both are validated server-side against the offered values — a client asking for a
+40¢ spread doesn't get one. Everything else lives in
+[`lib/config.ts`](lib/config.ts).
 
 ## Look and feel
 
@@ -56,12 +75,16 @@ cp .env.example .env.local
 npm run dev
 ```
 
-`.env.example` ships with `FIXTURE_MODE=1`, so it runs immediately on bundled
-sample markets — no network, no wallet, no orders. About half those fixtures are
+This runs against **live Polymarket** out of the box — discovery and order books
+are public and need no key. Set `FIXTURE_MODE=1` to run on bundled sample markets
+instead (no network, no wallet, no orders); about half those fixtures are
 deliberately *bad* books, so you can watch the screen reject them.
 
-To point at live Polymarket, remove `FIXTURE_MODE` from `.env.local`. Market
-discovery and order books are public and need no key.
+**Check `/api/diagnose` on your first live run.** It reports, step by step,
+whether Gamma is reachable, whether its response still has the fields we parse,
+whether discovery returns anything at each horizon, and whether an order book
+comes back — so a failure tells you which part broke instead of just showing an
+empty machine.
 
 ```bash
 npm test        # 41 tests over the book math, screening, scoring and spin
@@ -103,6 +126,26 @@ game actually uses, and only the headers the exchange needs.
 
 Note that a proxy you don't control could still replay the auth headers it
 relays. Deploy your own; don't point this at someone else's host.
+
+## Who holds the shares
+
+**Nobody here does.** This is deliberate and it's the most important design
+decision in the project.
+
+Orders are signed in your browser and filled on Polymarket's own exchange, so the
+outcome tokens land directly in your Polymarket account. This app never takes
+custody, never holds a float, and has no ability to move your positions. When the
+market resolves, winning shares are worth $1.00 each and you redeem them at
+[polymarket.com/portfolio](https://polymarket.com/portfolio) — the same as any
+trade you'd place there yourself. You can also sell before resolution.
+
+The alternative — pooling stakes, holding shares, paying people out on resolution
+— would be materially worse. It means custodying other people's money, tracking
+positions and settlement, and taking on the counterparty risk if anything goes
+wrong. In most jurisdictions it also turns a gimmick into a regulated activity.
+The non-custodial route avoids all of it, and the trade-off is small: players need
+their own funded Polymarket account, and the app can't show a portfolio it doesn't
+hold, so it links to theirs.
 
 ## Points
 

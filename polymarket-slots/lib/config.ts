@@ -46,7 +46,58 @@ export const DEFAULT_RULES: Rules = {
   minVolume24hUsd: 5_000,
   minLiquidityUsd: 2_000,
   minDepthMultiple: 2,
+  maxLevelsCrossed: 2,
 };
+
+/**
+ * The two screening rules worth putting in front of a player, with the reasoning
+ * shown inline. Everything else stays in DEFAULT_RULES — these are the two that
+ * change what you actually pay.
+ */
+export const SPREAD_OPTIONS: { cents: number; label: string; note: string }[] = [
+  {
+    cents: 1,
+    label: "1¢",
+    note: "Only the tightest books on the exchange. You give up about half a cent per share entering. Very few markets qualify.",
+  },
+  {
+    cents: 2,
+    label: "2¢",
+    note: "Strict, and still leaves a decent pool on liquid markets.",
+  },
+  {
+    cents: 3,
+    label: "3¢",
+    note: "Recommended. Wide enough to reach most short-dated markets, tight enough that the spread isn't the main thing you're paying.",
+  },
+  {
+    cents: 5,
+    label: "5¢",
+    note: "Loose. You're down about 2.5¢ a share the moment you enter — on a 40¢ contract that's over 6% before the question resolves.",
+  },
+];
+
+export const LEVEL_OPTIONS: { levels: number; label: string; note: string }[] = [
+  {
+    levels: 1,
+    label: "One price",
+    note: "Your whole stake fills at the best ask. Zero slippage by construction — if it doesn't all fit at the touch, the market is skipped.",
+  },
+  {
+    levels: 2,
+    label: "Up to two",
+    note: "Recommended. Fills at the best price and, if needed, the next one down. A cent or so of slippage at most.",
+  },
+  {
+    levels: 3,
+    label: "Up to three",
+    note: "Reaches thinner books. Crossing three prices for a small stake usually means there isn't much resting near the touch.",
+  },
+];
+
+/** Which option each control lands on by default. */
+export const RECOMMENDED_SPREAD_CENTS = 3;
+export const RECOMMENDED_LEVELS = 2;
 
 /** Bet sizing guardrails. The upper bound is a deliberate seatbelt. */
 export const MIN_BET_USD = 1;

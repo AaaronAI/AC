@@ -147,3 +147,94 @@ test("tighter books score above looser ones", () => {
   assert.equal(looser.eligible, true);
   assert.ok(tight.score > looser.score, `${tight.score} should beat ${looser.score}`);
 });
+
+test("the levels-crossed rule rejects an order that eats too far into the book", () => {
+  // $10 at the touch, $10.10 behind it, then plenty. A $25 bet needs 3 levels.
+  const book = normalizeBook("yes", {
+    bids: [{ price: "0.495", size: "5000" }],
+    asks: [
+      { price: "0.50", size: "20" },
+      { price: "0.505", size: "20" },
+      { price: "0.51", size: "1000" },
+    ],
+  });
+
+  const strict = evaluate(market(), book, 25, { ...rules, maxLevelsCrossed: 2 });
+  const loose = evaluate(market(), book, 25, { ...rules, maxLevelsCrossed: 3 });
+
+  assert.equal(strict.fill?.levelsConsumed, 3);
+  assert.equal(strict.eligible, false);
+  assert.ok(strict.reasons.includes(Reason.TOO_MANY_LEVELS));
+
+  // Same book, same bet, looser setting — now acceptable.
+  assert.equal(loose.eligible, true);
+  assert.equal(loose.reasons.length, 0);
+});
+
+test("a one-level setting only admits books deep enough to fill at the touch", () => {
+  const deep = normalizeBook("yes", {
+    bids: [{ price: "0.49", size: "5000" }],
+    asks: [{ price: "0.50", size: "5000" }],
+  });
+  const shallowTouch = normalizeBook("yes", {
+    bids: [{ price: "0.49", size: "5000" }],
+    asks: [
+      { price: "0.50", size: "20" },
+      { price: "0.505", size: "5000" },
+    ],
+  });
+
+  const oneLevel = { ...rules, maxLevelsCrossed: 1 };
+  const a = evaluate(market(), deep, 25, oneLevel);
+  const b = evaluate(market(), shallowTouch, 25, oneLevel);
+
+  assert.equal(a.eligible, true);
+  assert.equal(a.fill?.levelsConsumed, 1);
+  // Filling entirely at the touch means zero slippage, by construction.
+  assert.equal(a.fill?.slippageCents, 0);
+
+  assert.equal(b.eligible, false);
+  assert.ok(b.reasons.includes(Reason.TOO_MANY_LEVELS));
+});
+
+test("the levels rule is not raised against a book that couldn't fill at all", () => {
+  // Only $5 of depth: the real problem is CANT_FILL, and a truncated walk
+  // shouldn't also look like a tidy one-level fill.
+  const book = normalizeBook("yes", {
+    bids: [{ price: "0.49", size: "5000" }],
+    asks: [{ price: "0.50", size: "10" }],
+  });
+  const result = evaluate(market(), book, 100, { ...rules, maxLevelsCrossed: 1 });
+
+  assert.equal(result.eligible, false);
+  assert.ok(result.reasons.includes(Reason.CANT_FILL));
+  assert.ok(!result.reasons.includes(Reason.TOO_MANY_LEVELS));
+});
+
+test("a single-level fill scores above one that crosses levels", () => {
+  const clean = evaluate(
+    market(),
+    normalizeBook("yes", {
+      bids: [{ price: "0.49", size: "5000" }],
+      asks: [{ price: "0.50", size: "5000" }],
+    }),
+    25,
+    rules,
+  );
+  const crossed = evaluate(
+    market(),
+    normalizeBook("yes", {
+      bids: [{ price: "0.49", size: "5000" }],
+      asks: [
+        { price: "0.50", size: "40" },
+        { price: "0.505", size: "5000" },
+      ],
+    }),
+    25,
+    rules,
+  );
+
+  assert.equal(clean.eligible, true);
+  assert.equal(crossed.eligible, true);
+  assert.ok(clean.score > crossed.score, `${clean.score} should beat ${crossed.score}`);
+});

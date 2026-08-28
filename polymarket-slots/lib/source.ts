@@ -14,7 +14,8 @@ export async function getMarkets(opts: DiscoveryOptions): Promise<Market[]> {
     const now = opts.now ?? Date.now();
     return filterMarkets(fixtureMarkets(now), { ...opts, now });
   }
-  return discoverMarkets(opts);
+  const { markets } = await discoverMarkets(opts);
+  return markets;
 }
 
 export async function getBooks(tokenIds: string[], now = Date.now()): Promise<Map<string, Book>> {

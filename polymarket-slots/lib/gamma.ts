@@ -184,51 +184,115 @@ export interface DiscoveryOptions {
   now?: number;
 }
 
-/**
- * Pull live markets and narrow them to the requested horizon and category.
- *
- * The horizon is passed to Gamma as a query hint *and* re-checked locally — if
- * the API ignores or renames the date params, the local pass still guarantees
- * we only ever surface markets that resolve inside the window.
- */
-export async function discoverMarkets(opts: DiscoveryOptions): Promise<Market[]> {
-  const now = opts.now ?? Date.now();
-  const hours = HORIZONS[opts.horizon].hours;
-  const limit = opts.limit ?? DISCOVERY_LIMIT;
+const PAGE_SIZE = 100;
+/** Stop paging once we have plenty to screen — no need to walk the whole book. */
+const ENOUGH = 60;
 
-  const params = new URLSearchParams({
-    closed: "false",
-    active: "true",
-    archived: "false",
-    limit: String(limit),
-    order: "volume24hr",
-    ascending: "false",
-  });
-  params.set("end_date_min", new Date(now).toISOString());
-  if (Number.isFinite(hours)) {
-    params.set("end_date_max", new Date(now + hours * 3_600_000).toISOString());
-  }
+/** What one discovery attempt did, for the diagnostics route. */
+export interface DiscoveryReport {
+  usedDateBounds: boolean;
+  pagesFetched: number;
+  rowsSeen: number;
+  parsed: number;
+  matched: number;
+}
 
+/** Fetch one page of Gamma markets, tolerating either response envelope. */
+async function fetchGammaPage(params: URLSearchParams): Promise<GammaMarket[]> {
   const res = await fetch(`${GAMMA_HOST}/markets?${params}`, {
     headers: { accept: "application/json" },
     next: { revalidate: 30 },
   });
-  if (!res.ok) {
-    throw new Error(`Gamma responded ${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) throw new Error(`Gamma responded ${res.status} ${res.statusText}`);
 
   const body: unknown = await res.json();
   // Gamma has returned both a bare array and a {data:[...]} envelope over time.
-  const rows: GammaMarket[] = Array.isArray(body)
-    ? (body as GammaMarket[])
-    : Array.isArray((body as { data?: GammaMarket[] })?.data)
-      ? ((body as { data: GammaMarket[] }).data)
-      : [];
+  if (Array.isArray(body)) return body as GammaMarket[];
+  const data = (body as { data?: GammaMarket[] })?.data;
+  return Array.isArray(data) ? data : [];
+}
 
-  return filterMarkets(
-    rows.map((r) => normalizeMarket(r, now)).filter((m): m is Market => m !== null),
-    opts,
-  );
+/**
+ * Page through Gamma, normalizing and filtering as we go.
+ *
+ * `withDateBounds` asks the API to narrow by resolution date. That's much
+ * cheaper when it works, but the parameter names are the part of this
+ * integration we're least sure of, so the caller can retry without them.
+ */
+async function collect(
+  opts: DiscoveryOptions,
+  withDateBounds: boolean,
+  maxPages: number,
+): Promise<{ markets: Market[]; report: DiscoveryReport }> {
+  const now = opts.now ?? Date.now();
+  const hours = HORIZONS[opts.horizon].hours;
+  const report: DiscoveryReport = {
+    usedDateBounds: withDateBounds,
+    pagesFetched: 0,
+    rowsSeen: 0,
+    parsed: 0,
+    matched: 0,
+  };
+
+  const found: Market[] = [];
+
+  for (let page = 0; page < maxPages; page++) {
+    const params = new URLSearchParams({
+      closed: "false",
+      active: "true",
+      archived: "false",
+      limit: String(PAGE_SIZE),
+      offset: String(page * PAGE_SIZE),
+      order: "volume24hr",
+      ascending: "false",
+    });
+
+    if (withDateBounds) {
+      params.set("end_date_min", new Date(now).toISOString());
+      if (Number.isFinite(hours)) {
+        params.set("end_date_max", new Date(now + hours * 3_600_000).toISOString());
+      }
+    }
+
+    const rows = await fetchGammaPage(params);
+    report.pagesFetched += 1;
+    report.rowsSeen += rows.length;
+
+    const parsed = rows.map((r) => normalizeMarket(r, now)).filter((m): m is Market => m !== null);
+    report.parsed += parsed.length;
+
+    // Always re-check locally: even when the API accepts the date bounds, this
+    // is what guarantees we never surface a market outside the window.
+    found.push(...filterMarkets(parsed, { ...opts, now }));
+
+    // A short page means we've reached the end of the result set.
+    if (rows.length < PAGE_SIZE) break;
+    if (found.length >= ENOUGH) break;
+  }
+
+  report.matched = found.length;
+  return { markets: found, report };
+}
+
+/**
+ * Pull live markets and narrow them to the requested horizon and category.
+ *
+ * Two passes. The first asks Gamma to filter by resolution date; if that comes
+ * back empty — which is what an ignored or renamed date parameter looks like,
+ * since ordering by volume would then return only long-dated markets — we page
+ * through unfiltered and narrow locally instead. Slower, but it means a change
+ * on their side degrades performance rather than returning nothing.
+ */
+export async function discoverMarkets(
+  opts: DiscoveryOptions,
+): Promise<{ markets: Market[]; report: DiscoveryReport }> {
+  const maxPages = Math.max(1, Math.ceil((opts.limit ?? DISCOVERY_LIMIT) / PAGE_SIZE));
+
+  const first = await collect(opts, true, maxPages);
+  if (first.markets.length > 0) return first;
+
+  const second = await collect(opts, false, Math.max(maxPages, 6));
+  return second;
 }
 
 /** Horizon + category narrowing. Exported so it can be tested without network. */

@@ -15,6 +15,7 @@ export const Reason = {
   CANT_FILL: "book can't absorb the bet",
   SLIPPAGE: "too much slippage",
   SHALLOW: "book too shallow behind the touch",
+  TOO_MANY_LEVELS: "order would cross too many prices",
 } as const;
 
 export type ReasonCode = (typeof Reason)[keyof typeof Reason];
@@ -52,6 +53,11 @@ export function evaluate(market: Market, book: Book, betUsd: number, rules: Rule
   const fill = simulateMarketBuy(book, betUsd);
   if (!fill.filled) reasons.push(Reason.CANT_FILL);
   if (fill.slippageCents > rules.maxSlippageCents) reasons.push(Reason.SLIPPAGE);
+  // Only meaningful on a fill that completed — a partial fill stops early and
+  // would otherwise look deceptively tidy.
+  if (fill.filled && fill.levelsConsumed > rules.maxLevelsCrossed) {
+    reasons.push(Reason.TOO_MANY_LEVELS);
+  }
 
   const requiredDepth = betUsd * rules.minDepthMultiple;
   if (metrics.askDepthUsd < requiredDepth) reasons.push(Reason.SHALLOW);
@@ -88,7 +94,10 @@ function scoreBook(
   // Volume is log-scaled — $50k and $500k shouldn't be a 10x difference in appeal.
   const volume = clamp01(Math.log10(Math.max(market.volume24hUsd, 1)) / 6);
 
-  const score = tightness * 30 + precision * 30 + depth * 25 + volume * 15;
+  // A single-level fill is the cleanest possible execution, so reward it.
+  const cleanliness = fill.levelsConsumed <= 1 ? 1 : fill.levelsConsumed <= 2 ? 0.6 : 0.25;
+
+  const score = tightness * 26 + precision * 26 + depth * 20 + volume * 13 + cleanliness * 15;
   return Math.round(score);
 }
 

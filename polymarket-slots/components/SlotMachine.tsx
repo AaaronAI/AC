@@ -4,7 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { describeError, executeSpin, type WalletMode } from "@/lib/client/execute";
 import { connect, hasInjectedWallet, shortAddress, type Connection } from "@/lib/client/wallet";
-import { HORIZONS, MIN_BET_USD } from "@/lib/config";
+import {
+  HORIZONS,
+  LEVEL_OPTIONS,
+  MIN_BET_USD,
+  RECOMMENDED_LEVELS,
+  RECOMMENDED_SPREAD_CENTS,
+  SPREAD_OPTIONS,
+} from "@/lib/config";
 import { bookGrade, computePoints, type PointsBreakdown } from "@/lib/points";
 import { encodeCard } from "@/lib/share";
 import type { CategoryKey, HorizonKey, Rules, ScreeningSummary, SpinResult } from "@/lib/types";
@@ -56,11 +63,16 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
   const [bet, setBet] = useState(10);
   const [horizon, setHorizon] = useState<HorizonKey>("24h");
   const [category, setCategory] = useState<CategoryKey>("any");
+  const [maxSpread, setMaxSpread] = useState(RECOMMENDED_SPREAD_CENTS);
+  const [maxLevels, setMaxLevels] = useState(RECOMMENDED_LEVELS);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<SpinResult | null>(null);
   const [points, setPoints] = useState<PointsBreakdown | null>(null);
   const [miss, setMiss] = useState<{ message: string; screening: ScreeningSummary | null } | null>(null);
+  // The server validates and clamps the dials, so echo back what it actually
+  // used rather than assuming our request was honoured verbatim.
+  const [appliedRules, setAppliedRules] = useState<Rules>(rules);
 
   const [credits, setCredits] = useState(0);
   const [shownCredits, setShownCredits] = useState(0);
@@ -201,7 +213,13 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
       const res = await fetch("/api/spin", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ betUsd: bet, horizon, category }),
+        body: JSON.stringify({
+          betUsd: bet,
+          horizon,
+          category,
+          maxSpreadCents: maxSpread,
+          maxLevelsCrossed: maxLevels,
+        }),
       });
       const data = await res.json();
 
@@ -216,6 +234,7 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
       }
 
       const spin: SpinResult = data.spin;
+      if (data.rules) setAppliedRules(data.rules as Rules);
       const breakdown = computePoints({
         betUsd: spin.betUsd,
         impliedProbability: spin.quote.expectedAvgPrice,
@@ -240,7 +259,7 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
       setMiss({ message: "Couldn't reach the machine. Check your connection and pull again.", screening: null });
       setPhase("idle");
     }
-  }, [bet, busy, category, credits, horizon, persist, streak]);
+  }, [bet, busy, category, credits, horizon, maxLevels, maxSpread, persist, streak]);
 
   const onConnect = useCallback(async () => {
     setWalletError(null);
@@ -464,6 +483,56 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
             </div>
           </div>
 
+          <details className="tuning">
+            <summary>
+              Book quality — spread ≤ {maxSpread}¢, fills within{" "}
+              {maxLevels === 1 ? "one price" : `${maxLevels} prices`}
+            </summary>
+
+            <div className="tuning-body">
+              <span className="lab">Widest spread you'll accept</span>
+              <div className="row">
+                {SPREAD_OPTIONS.map((o) => (
+                  <button
+                    key={o.cents}
+                    type="button"
+                    className="key"
+                    aria-pressed={maxSpread === o.cents}
+                    disabled={busy}
+                    onClick={() => setMaxSpread(o.cents)}
+                  >
+                    {o.label}
+                    {o.cents === RECOMMENDED_SPREAD_CENTS ? " ★" : ""}
+                  </button>
+                ))}
+              </div>
+              <p className="why">{SPREAD_OPTIONS.find((o) => o.cents === maxSpread)?.note}</p>
+
+              <span className="lab">How far into the book your order may eat</span>
+              <div className="row">
+                {LEVEL_OPTIONS.map((o) => (
+                  <button
+                    key={o.levels}
+                    type="button"
+                    className="key"
+                    aria-pressed={maxLevels === o.levels}
+                    disabled={busy}
+                    onClick={() => setMaxLevels(o.levels)}
+                  >
+                    {o.label}
+                    {o.levels === RECOMMENDED_LEVELS ? " ★" : ""}
+                  </button>
+                ))}
+              </div>
+              <p className="why">{LEVEL_OPTIONS.find((o) => o.levels === maxLevels)?.note}</p>
+
+              <p className="why muted">
+                ★ recommended. Both rules are enforced on the server — the machine will refuse
+                to land on a market that fails them rather than show you a worse fill.
+              </p>
+            </div>
+          </details>
+
           <button type="button" className="handle" onClick={pull} disabled={busy}>
             {phase === "screening" ? "SCREENING" : phase === "spinning" ? "SPINNING" : "PULL"}
           </button>
@@ -517,18 +586,34 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
             </p>
           )}
 
+          {execPhase === "done" && (
+            <p className="custody">
+              <b>The shares are yours, not ours.</b> They settled straight into your own
+              Polymarket account — this app never holds them and cannot touch them. When the
+              market resolves, winning shares pay $1.00 each and you redeem them at{" "}
+              <a href="https://polymarket.com/portfolio" target="_blank" rel="noreferrer">
+                polymarket.com/portfolio
+              </a>
+              . You can also sell before resolution there at any time.
+            </p>
+          )}
+
           <details className="working">
             <summary>
               How it landed here — {result.screening.eligible} of {result.screening.booksChecked} bets passed
             </summary>
             <Funnel screening={result.screening} />
             <div className="rules">
-              Every candidate cleared: spread ≤ {rules.maxSpreadCents}¢ · slippage ≤{" "}
-              {rules.maxSlippageCents}¢ on your ${result.betUsd.toFixed(0)} · price{" "}
-              {Math.round(rules.minPrice * 100)}–{Math.round(rules.maxPrice * 100)}¢ · $
-              {rules.minVolume24hUsd.toLocaleString("en-US")}+ daily volume ·{" "}
-              {rules.minDepthMultiple}× your stake resting near the touch. The pick is weighted
-              toward the healthiest books.
+              Every candidate cleared: spread ≤ {appliedRules.maxSpreadCents}¢ · at most{" "}
+              {appliedRules.maxLevelsCrossed === 1
+                ? "one price level"
+                : `${appliedRules.maxLevelsCrossed} price levels`}{" "}
+              crossed · slippage ≤ {appliedRules.maxSlippageCents}¢ on your $
+              {result.betUsd.toFixed(0)} · price {Math.round(appliedRules.minPrice * 100)}–
+              {Math.round(appliedRules.maxPrice * 100)}¢ · $
+              {appliedRules.minVolume24hUsd.toLocaleString("en-US")}+ daily volume ·{" "}
+              {appliedRules.minDepthMultiple}× your stake resting near the touch. The pick is
+              weighted toward the healthiest books.
             </div>
           </details>
         </>
@@ -582,6 +667,10 @@ function Ticket({ result, points }: { result: SpinResult; points: PointsBreakdow
         <Row
           k="Spread / slippage"
           v={`${(result.evaluation.metrics.spreadCents ?? 0).toFixed(1)}¢ / ${(result.evaluation.fill?.slippageCents ?? 0).toFixed(2)}¢`}
+        />
+        <Row
+          k="Prices crossed"
+          v={crossedLabel(result.evaluation.fill?.levelsConsumed ?? 0)}
         />
         <Row k="Book grade" v={bookGrade(result.evaluation.score)} />
       </div>
@@ -679,6 +768,11 @@ function prefersReducedMotion(): boolean {
 function clampBet(value: number, max: number): number {
   if (!Number.isFinite(value)) return MIN_BET_USD;
   return Math.min(Math.max(Math.round(value), MIN_BET_USD), max);
+}
+
+function crossedLabel(levels: number): string {
+  if (levels <= 1) return "1 — all at best ask";
+  return `${levels} price levels`;
 }
 
 function formatHours(hours: number): string {

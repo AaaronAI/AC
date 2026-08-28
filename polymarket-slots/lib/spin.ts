@@ -23,6 +23,7 @@ export interface SpinOptions {
   betUsd: number;
   horizon: HorizonKey;
   category: CategoryKey;
+  /** Screening rules, already validated. Defaults when omitted. */
   rules?: Rules;
   /** Seed the pick for reproducibility. Omit for a genuinely random spin. */
   seed?: string;

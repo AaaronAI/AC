@@ -184,4 +184,13 @@ export interface Rules {
   minLiquidityUsd: number;
   /** Require the book to hold this multiple of the bet within the slippage cap. */
   minDepthMultiple: number;
+  /**
+   * How many price levels the order may eat through.
+   *
+   * 1 means the whole stake fills at the best ask and slippage is exactly zero.
+   * Each extra level means later shares cost more than the quoted price. This is
+   * the most legible depth measure there is: it answers "is there enough resting
+   * at the touch to take all of me?" without needing a dollar figure.
+   */
+  maxLevelsCrossed: number;
 }
