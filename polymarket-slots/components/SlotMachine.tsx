@@ -16,7 +16,18 @@ import { bookGrade, computePoints, type PointsBreakdown } from "@/lib/points";
 import { encodeCard } from "@/lib/share";
 import type { CategoryKey, HorizonKey, Rules, ScreeningSummary, SpinResult } from "@/lib/types";
 
+import {
+  MARKET_IDS,
+  MARKET_IMAGES,
+  MEME_CAPTIONS,
+  MEME_IDS,
+  MEME_IMAGES,
+  type MarketId,
+  type MemeId,
+} from "@/lib/reels";
+
 import { CategoryMark } from "./CategoryMark";
+import { MarketMark, MemeMark } from "./ReelSymbols";
 
 type Phase = "idle" | "screening" | "spinning" | "result";
 type ExecPhase = "idle" | "signing" | "done" | "error";
@@ -44,13 +55,16 @@ const SPIN_PRICES = [12, 23, 31, 38, 44, 49, 53, 58, 63, 67, 72, 81, 88];
 
 type Cell =
   | { kind: "icon"; cat: CategoryKey; cap: string }
+  | { kind: "meme"; id: MemeId; cap: string }
+  | { kind: "image"; src: string; cap: string }
+  | { kind: "market"; id: MarketId; text: string; cap: string }
   | { kind: "text"; text: string; cap: string; tone?: "yes" | "no" };
 
 /** The resting face, shown before the first pull and after a refusal. */
 const IDLE_FACE: Cell[][] = [
-  [{ kind: "icon", cat: "any", cap: "market" }],
+  [{ kind: "meme", id: "turtleneck", cap: MEME_CAPTIONS.turtleneck }],
   [{ kind: "text", text: "?", cap: "side" }],
-  [{ kind: "text", text: "––¢", cap: "price" }],
+  [{ kind: "market", id: "odds", text: "––¢", cap: "price" }],
 ];
 
 interface Props {
@@ -247,9 +261,9 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
       const cents = Math.round(spin.quote.expectedAvgPrice * 100);
 
       setStrips([
-        [...fillCells(0, 16), { kind: "icon", cat: spin.market.category, cap: CAT_LABEL[spin.market.category] ?? "Market" }],
+        [...fillCells(0, 16), memeCell()],
         [...fillCells(1, 16), { kind: "text", text: side, cap: "side", tone: side === "YES" ? "yes" : "no" }],
-        [...fillCells(2, 16), { kind: "text", text: `${cents}¢`, cap: "price" }],
+        [...fillCells(2, 16), marketCell(`${cents}¢`)],
       ]);
 
       pending.current = { result: spin, points: breakdown };
@@ -391,7 +405,8 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
               <div className="eyebrow">The machine picked</div>
               <p className="question">{result.market.question}</p>
               <div className="meta">
-                settles in <b>{formatHours(result.market.hoursToResolution)}</b> · book{" "}
+                <b>{CAT_LABEL[result.market.category]}</b> · settles in{" "}
+                <b>{formatHours(result.market.hoursToResolution)}</b> · book{" "}
                 <b>{bookGrade(result.evaluation.score)}</b> ·{" "}
                 <b>{result.quote.multiplier.toFixed(2)}×</b>
               </div>
@@ -631,6 +646,32 @@ function ReelCell({ cell }: { cell: Cell }) {
       </div>
     );
   }
+  if (cell.kind === "meme") {
+    return (
+      <div className="rcell">
+        <MemeMark id={cell.id} />
+        <div className="cap">{cell.cap}</div>
+      </div>
+    );
+  }
+  if (cell.kind === "image") {
+    return (
+      <div className="rcell">
+        {/* Supplied by whoever deployed this; decorative, so no alt text. */}
+        <img className="rmeme" src={cell.src} alt="" />
+        {cell.cap && <div className="cap">{cell.cap}</div>}
+      </div>
+    );
+  }
+  if (cell.kind === "market") {
+    return (
+      <div className="rcell stacked">
+        <MarketMark id={cell.id} />
+        <div className="big">{cell.text}</div>
+        <div className="cap">{cell.cap}</div>
+      </div>
+    );
+  }
   return (
     <div className={`rcell${cell.tone ? ` ${cell.tone}` : ""}`}>
       <div className="big">{cell.text}</div>
@@ -740,17 +781,30 @@ function FunnelRow({ label, n }: { label: string; n: number }) {
 
 /* --- helpers -------------------------------------------------------------- */
 
+function pick<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+/** The left reel's artwork: a drop-in image if you supplied any, else drawn. */
+function memeCell(): Cell {
+  if (MEME_IMAGES.length > 0) return { kind: "image", src: pick(MEME_IMAGES), cap: "" };
+  const id = pick(MEME_IDS);
+  return { kind: "meme", id, cap: MEME_CAPTIONS[id] };
+}
+
 function randomCell(which: number): Cell {
-  if (which === 0) {
-    const pool = CATEGORY_ORDER.slice(1);
-    const cat = pool[Math.floor(Math.random() * pool.length)];
-    return { kind: "icon", cat, cap: CAT_LABEL[cat] };
-  }
+  if (which === 0) return memeCell();
   if (which === 1) {
     const yes = Math.random() < 0.5;
     return { kind: "text", text: yes ? "YES" : "NO", cap: "side", tone: yes ? "yes" : "no" };
   }
-  return { kind: "text", text: `${SPIN_PRICES[Math.floor(Math.random() * SPIN_PRICES.length)]}¢`, cap: "price" };
+  return marketCell(`${pick(SPIN_PRICES)}¢`);
+}
+
+/** The right reel: a supplied image if you added any, else a drawn mark. */
+function marketCell(text: string): Cell {
+  if (MARKET_IMAGES.length > 0) return { kind: "image", src: pick(MARKET_IMAGES), cap: text };
+  return { kind: "market", id: pick(MARKET_IDS), text, cap: "price" };
 }
 
 function fillCells(which: number, n: number): Cell[] {

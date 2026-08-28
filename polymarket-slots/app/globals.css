@@ -606,3 +606,20 @@ details.tuning[open] summary { border-bottom: 1px solid rgba(201, 162, 39, 0.2);
 
 .custody b { color: #9fdcbd; font-weight: 500; }
 .custody a { color: var(--brass-lit); }
+
+/* --- reel artwork --------------------------------------------------------- */
+
+/* Right reel carries a mark and a number, so both shrink to share the face. */
+.rcell.stacked { gap: 3px; }
+.rcell.stacked svg { width: 26px; height: 26px; }
+.rcell.stacked .big { font-size: 23px; }
+
+/* Drop-in meme images, if any were supplied. */
+.rcell .rmeme {
+  width: 68%;
+  max-width: 74px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(36, 26, 18, 0.35);
+}

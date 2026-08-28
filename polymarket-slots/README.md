@@ -127,6 +127,21 @@ game actually uses, and only the headers the exchange needs.
 Note that a proxy you don't control could still replay the auth headers it
 relays. Deploy your own; don't point this at someone else's host.
 
+## Reel artwork
+
+Left reel is the joke, right reel is the odds; the middle one is the actual bet.
+Neither side reel changes what gets screened — they're the cabinet's artwork, the
+way cherries and BARs are.
+
+The shipped set is drawn, not photographed: the sweater-verse on the left
+(turtleneck, coiled scarf, glass of white, sandworm) and prediction-market
+furniture on the right (probability curve, crystal ball, gavel, dice, a free
+grocery storefront, an empty Oval Office armchair, a covered rent cheque).
+
+To use your own images, drop files in `public/reels/` and list them in
+[`lib/reels.ts`](lib/reels.ts) — see [`public/reels/README.md`](public/reels/README.md).
+Worth reading the caution there before putting a real face on a reel.
+
 ## Who holds the shares
 
 **Nobody here does.** This is deliberate and it's the most important design
