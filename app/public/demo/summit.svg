@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" role="img" aria-label="Demo placeholder: 14er Summit">
+  <rect width="800" height="500" fill="#3d4b66"/>
+  <text x="60" y="240" font-family="system-ui,sans-serif" font-size="140" fill="#ffffff" opacity="0.9">▲</text>
+  <text x="60" y="360" font-family="system-ui,sans-serif" font-size="52" font-weight="800" fill="#ffffff" letter-spacing="-1">14er Summit</text>
+  <text x="60" y="430" font-family="system-ui,sans-serif" font-size="22" fill="#ffffff" opacity="0.7">DEMO IMAGE — replace with real campaign photography</text>
+</svg>
