@@ -1,19 +1,50 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { describeError, executeSpin, type WalletMode } from "@/lib/client/execute";
 import { connect, hasInjectedWallet, shortAddress, type Connection } from "@/lib/client/wallet";
-import { CATEGORIES, HORIZONS, MIN_BET_USD } from "@/lib/config";
+import { HORIZONS, MIN_BET_USD } from "@/lib/config";
 import { bookGrade, computePoints, type PointsBreakdown } from "@/lib/points";
-import { TIER_STYLE, encodeCard } from "@/lib/share";
+import { encodeCard } from "@/lib/share";
 import type { CategoryKey, HorizonKey, Rules, ScreeningSummary, SpinResult } from "@/lib/types";
+
+import { CategoryMark } from "./CategoryMark";
 
 type Phase = "idle" | "screening" | "spinning" | "result";
 type ExecPhase = "idle" | "signing" | "done" | "error";
 
-const SPIN_MS = 2600;
-const STORAGE_KEY = "polymarket-slots:progress";
+/** Reels land one at a time — the gap between them is the anticipation. */
+const REEL_MS = [1500, 2150, 2800];
+const BULB_COUNT = 13;
+const STORAGE_KEY = "polymarket-slots:cabinet";
+
+const CAT_LABEL: Record<CategoryKey, string> = {
+  any: "Wildcard",
+  geopolitics: "World",
+  sports: "Sports",
+  crypto: "Crypto",
+  politics: "Politics",
+  culture: "Culture",
+  economics: "Econ",
+};
+
+const CATEGORY_ORDER: CategoryKey[] = [
+  "any", "geopolitics", "sports", "crypto", "politics", "culture", "economics",
+];
+
+const SPIN_PRICES = [12, 23, 31, 38, 44, 49, 53, 58, 63, 67, 72, 81, 88];
+
+type Cell =
+  | { kind: "icon"; cat: CategoryKey; cap: string }
+  | { kind: "text"; text: string; cap: string; tone?: "yes" | "no" };
+
+/** The resting face, shown before the first pull and after a refusal. */
+const IDLE_FACE: Cell[][] = [
+  [{ kind: "icon", cat: "any", cap: "market" }],
+  [{ kind: "text", text: "?", cap: "side" }],
+  [{ kind: "text", text: "––¢", cap: "price" }],
+];
 
 interface Props {
   fixtureMode: boolean;
@@ -29,109 +60,139 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<SpinResult | null>(null);
   const [points, setPoints] = useState<PointsBreakdown | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [screening, setScreening] = useState<ScreeningSummary | null>(null);
+  const [miss, setMiss] = useState<{ message: string; screening: ScreeningSummary | null } | null>(null);
 
-  const [totalPoints, setTotalPoints] = useState(0);
+  const [credits, setCredits] = useState(0);
+  const [shownCredits, setShownCredits] = useState(0);
   const [streak, setStreak] = useState(0);
+
+  // Fixed, not random: a random initial face renders differently on the server
+  // and the client and fails hydration. A cabinet at rest shows one face anyway.
+  const [strips, setStrips] = useState<Cell[][]>(() => IDLE_FACE);
+  const [spinToken, setSpinToken] = useState(0);
+  const pending = useRef<{ result: SpinResult; points: PointsBreakdown } | null>(null);
 
   const [wallet, setWallet] = useState<Connection | null>(null);
   const [mode, setMode] = useState<WalletMode>("eoa");
   const [funder, setFunder] = useState("");
   const [walletError, setWalletError] = useState<string | null>(null);
+  const [canConnect, setCanConnect] = useState(false);
 
   const [execPhase, setExecPhase] = useState<ExecPhase>("idle");
   const [execMessage, setExecMessage] = useState<string | null>(null);
 
-  const windowRef = useRef<HTMLDivElement>(null);
-  const stripRef = useRef<HTMLDivElement>(null);
+  const stripRefs = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)];
+  const [bulbPos, setBulbPos] = useState(0);
+  const [flashing, setFlashing] = useState(false);
 
-  // Restore the running score. Wrapped because storage throws in some contexts.
+  useEffect(() => setCanConnect(hasInjectedWallet()), []);
+
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (!saved) return;
-      const parsed = JSON.parse(saved) as { totalPoints?: number; streak?: number };
-      if (typeof parsed.totalPoints === "number") setTotalPoints(parsed.totalPoints);
-      if (typeof parsed.streak === "number") setStreak(parsed.streak);
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
+      if (typeof saved?.credits === "number") { setCredits(saved.credits); setShownCredits(saved.credits); }
+      if (typeof saved?.streak === "number") setStreak(saved.streak);
     } catch {
-      /* no saved progress; not worth surfacing */
+      /* storage unavailable; the session still plays, it just won't persist */
     }
   }, []);
 
-  const persist = useCallback((nextTotal: number, nextStreak: number) => {
+  const persist = useCallback((c: number, s: number) => {
     try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ totalPoints: nextTotal, streak: nextStreak }),
-      );
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ credits: c, streak: s }));
     } catch {
-      /* storage unavailable; the session still works, it just won't persist */
+      /* ignore */
     }
   }, []);
 
-  /** The reel contents: real qualifying markets, then the winner last. */
-  const strip = useMemo(() => {
-    if (!result) return [];
-    const filler = result.reelFiller.length > 0 ? result.reelFiller : [result.market.question];
-    const items: { q: string; sub: string }[] = [];
-    // Enough repeats that the reel reads as motion rather than a short list.
-    for (let i = 0; i < 14; i++) {
-      items.push({ q: filler[i % filler.length], sub: "screened · eligible" });
-    }
-    items.push({
-      q: result.market.question,
-      sub: `${result.outcome.label.toUpperCase()} · ${Math.round(result.quote.expectedAvgPrice * 100)}¢`,
-    });
-    return items;
-  }, [result]);
+  const busy = phase === "screening" || phase === "spinning";
 
-  // Drive the landing animation once a result exists.
+  // Marquee chase. Faster while the reels are running, flashing on a big win.
   useEffect(() => {
-    if (phase !== "spinning" || !result || strip.length === 0) return;
+    if (prefersReducedMotion()) return;
+    const speed = flashing ? 110 : busy ? 90 : 240;
+    const id = setInterval(() => setBulbPos((p) => p + 1), speed);
+    return () => clearInterval(id);
+  }, [busy, flashing]);
 
-    const stripEl = stripRef.current;
-    const windowEl = windowRef.current;
-    if (!stripEl || !windowEl) return;
+  // Roll the credits meter up rather than snapping it.
+  useEffect(() => {
+    if (shownCredits === credits) return;
+    if (prefersReducedMotion()) { setShownCredits(credits); return; }
+    const from = shownCredits;
+    const start = performance.now();
+    let raf = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 650);
+      const eased = 1 - (1 - t) ** 3;
+      setShownCredits(Math.round(from + (credits - from) * eased));
+      if (t < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // Intentionally keyed only on the target: re-running on every tick would
+    // restart the animation each frame.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [credits]);
 
-    // Measure a slot, not the window: the window carries a 1px border, so its
-    // clientHeight is 2px short of a slot and that error compounds across every
-    // row, landing the reel visibly off the payline.
-    const firstSlot = stripEl.querySelector<HTMLElement>(".slot");
-    const slotHeight = firstSlot?.offsetHeight ?? windowEl.clientHeight;
-    const finalOffset = -(strip.length - 1) * slotHeight;
+  // Drive the reels once new strips have rendered.
+  useEffect(() => {
+    if (spinToken === 0 || !pending.current) return;
+    let cancelled = false;
 
-    const reduced =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    (async () => {
+      const reduced = prefersReducedMotion();
+      for (let i = 0; i < 3; i++) {
+        const el = stripRefs[i].current;
+        if (!el) continue;
+        const cell = el.querySelector<HTMLElement>(".rcell");
+        const cellH = cell?.offsetHeight ?? 132;
+        const target = -(strips[i].length - 1) * cellH;
 
-    if (reduced) {
-      stripEl.style.transition = "none";
-      stripEl.style.transform = `translateY(${finalOffset}px)`;
+        if (reduced) {
+          el.style.transition = "none";
+          el.style.transform = `translateY(${target}px)`;
+          continue;
+        }
+        el.style.transition = "none";
+        el.style.transform = "translateY(0px)";
+        // Force a reflow so the reset and the move aren't collapsed into one.
+        void el.offsetHeight;
+        el.style.transition = `transform ${REEL_MS[i]}ms cubic-bezier(0.13, 0.78, 0.2, 1)`;
+        el.style.transform = `translateY(${target}px)`;
+      }
+
+      if (!reduced) await wait(REEL_MS[REEL_MS.length - 1] + 40);
+      if (cancelled) return;
+
+      const held = pending.current;
+      if (!held) return;
+      setResult(held.result);
+      setPoints(held.points);
       setPhase("result");
-      return;
-    }
+      setCredits((c) => {
+        const next = c + held.points.total;
+        persist(next, streak + 1);
+        return next;
+      });
+      setStreak((s) => s + 1);
 
-    stripEl.style.transition = "none";
-    stripEl.style.transform = "translateY(0px)";
-    // Force a reflow so the browser doesn't collapse the reset and the move
-    // into a single style change, which would skip the animation entirely.
-    void stripEl.offsetHeight;
+      if (held.points.tier === "epic" || held.points.tier === "legendary") {
+        setFlashing(true);
+        setTimeout(() => setFlashing(false), 900);
+      }
+      pending.current = null;
+    })();
 
-    stripEl.style.transition = `transform ${SPIN_MS}ms cubic-bezier(0.16, 0.84, 0.24, 1)`;
-    stripEl.style.transform = `translateY(${finalOffset}px)`;
-
-    const timer = setTimeout(() => setPhase("result"), SPIN_MS + 60);
-    return () => clearTimeout(timer);
-  }, [phase, result, strip]);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spinToken]);
 
   const pull = useCallback(async () => {
-    if (phase === "screening" || phase === "spinning") return;
-
-    setError(null);
-    setScreening(null);
+    if (busy) return;
     setResult(null);
     setPoints(null);
+    setMiss(null);
     setExecPhase("idle");
     setExecMessage(null);
     setPhase("screening");
@@ -145,17 +206,16 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
       const data = await res.json();
 
       if (!data.ok) {
-        setError(data.error ?? "Something went wrong.");
-        setScreening(data.screening ?? null);
+        setMiss({ message: data.error ?? "Something went wrong.", screening: data.screening ?? null });
         setPhase("idle");
-        // A failed spin breaks the streak.
         setStreak(0);
-        persist(totalPoints, 0);
+        persist(credits, 0);
+        setStrips(IDLE_FACE);
+        for (const r of stripRefs) if (r.current) r.current.style.transform = "translateY(0px)";
         return;
       }
 
       const spin: SpinResult = data.spin;
-      const nextStreak = streak + 1;
       const breakdown = computePoints({
         betUsd: spin.betUsd,
         impliedProbability: spin.quote.expectedAvgPrice,
@@ -164,18 +224,23 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
         streak,
       });
 
-      const nextTotal = totalPoints + breakdown.total;
-      setResult(spin);
-      setPoints(breakdown);
-      setStreak(nextStreak);
-      setTotalPoints(nextTotal);
-      persist(nextTotal, nextStreak);
+      const side = spin.outcome.label.toUpperCase();
+      const cents = Math.round(spin.quote.expectedAvgPrice * 100);
+
+      setStrips([
+        [...fillCells(0, 16), { kind: "icon", cat: spin.market.category, cap: CAT_LABEL[spin.market.category] ?? "Market" }],
+        [...fillCells(1, 16), { kind: "text", text: side, cap: "side", tone: side === "YES" ? "yes" : "no" }],
+        [...fillCells(2, 16), { kind: "text", text: `${cents}¢`, cap: "price" }],
+      ]);
+
+      pending.current = { result: spin, points: breakdown };
       setPhase("spinning");
+      setSpinToken((t) => t + 1);
     } catch {
-      setError("Couldn't reach the machine. Check your connection and try again.");
+      setMiss({ message: "Couldn't reach the machine. Check your connection and pull again.", screening: null });
       setPhase("idle");
     }
-  }, [bet, category, horizon, phase, persist, streak, totalPoints]);
+  }, [bet, busy, category, credits, horizon, persist, streak]);
 
   const onConnect = useCallback(async () => {
     setWalletError(null);
@@ -188,10 +253,7 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
 
   const placeBet = useCallback(async () => {
     if (!result) return;
-    if (!wallet) {
-      await onConnect();
-      return;
-    }
+    if (!wallet) { await onConnect(); return; }
 
     setExecPhase("signing");
     setExecMessage(null);
@@ -215,339 +277,31 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
     }
   }, [funder, mode, onConnect, result, wallet]);
 
-  const shareUrl = useMemo(() => {
-    if (!result || !points) return null;
-    const encoded = encodeCard({
-      q: result.market.question,
-      o: result.outcome.label,
-      p: result.quote.expectedAvgPrice,
-      b: result.betUsd,
-      w: result.quote.payoutIfWin,
-      pts: points.total,
-      t: points.tier,
-      g: bookGrade(result.evaluation.score),
-      h: result.market.hoursToResolution,
-      c: result.market.category,
-    });
-    return `/card/${encoded}`;
-  }, [points, result]);
-
-  const busy = phase === "screening" || phase === "spinning";
-  const tier = points ? TIER_STYLE[points.tier] : null;
+  const shareHref =
+    result && points
+      ? `/card/${encodeCard({
+          q: result.market.question,
+          o: result.outcome.label,
+          p: result.quote.expectedAvgPrice,
+          b: result.betUsd,
+          w: result.quote.payoutIfWin,
+          pts: points.total,
+          t: points.tier,
+          g: bookGrade(result.evaluation.score),
+          h: result.market.hoursToResolution,
+          c: result.market.category,
+        })}`
+      : null;
 
   return (
-    <>
+    <main className="room">
       {fixtureMode && (
-        <div className="banner warn">
-          <strong>Fixture mode.</strong> Running on bundled sample markets — nothing here is
-          live and no order can be placed. Unset <code>FIXTURE_MODE</code> to connect to
-          Polymarket.
-        </div>
+        <p className="preamble">
+          <b>SAMPLE-DATA MODE.</b> Running on bundled markets, not live Polymarket — no order
+          can be placed. Unset <code>FIXTURE_MODE</code> to connect to the real exchange.
+        </p>
       )}
 
-      <WalletBar
-        wallet={wallet}
-        mode={mode}
-        setMode={setMode}
-        funder={funder}
-        setFunder={setFunder}
-        onConnect={onConnect}
-        error={walletError}
-        totalPoints={totalPoints}
-        streak={streak}
-        disabled={fixtureMode}
-      />
-
-      <section className="cabinet">
-        <div className="tumblers">
-          <div className={`tumbler ${busy ? "live" : ""}`}>
-            <div className="k">Category</div>
-            <div className="v">
-              {CATEGORIES[result?.market.category ?? category].emoji}{" "}
-              {CATEGORIES[result?.market.category ?? category].label}
-            </div>
-          </div>
-          <div className={`tumbler ${busy ? "live" : ""}`}>
-            <div className="k">Settles</div>
-            <div className="v">
-              {phase === "result" && result
-                ? formatHours(result.market.hoursToResolution)
-                : HORIZONS[horizon].label}
-            </div>
-          </div>
-          <div className={`tumbler ${busy ? "live" : ""}`}>
-            <div className="k">Odds</div>
-            <div className="v">
-              {phase === "result" && result ? `${result.quote.multiplier.toFixed(2)}x` : "—"}
-            </div>
-          </div>
-        </div>
-
-        <div className={`window ${busy ? "spinning" : ""}`} ref={windowRef}>
-          <div className="strip" ref={stripRef}>
-            {strip.length === 0 ? (
-              <div className="slot">
-                <div className="idle-slot">
-                  {phase === "screening"
-                    ? "Reading order books…"
-                    : "Set your bet and pull the lever"}
-                </div>
-              </div>
-            ) : (
-              strip.map((item, i) => (
-                <div className="slot" key={`${i}-${item.q}`}>
-                  <div className="q">{item.q}</div>
-                  <div className="sub">{item.sub}</div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="controls">
-          <div className="field">
-            <span className="label">Bet</span>
-            <div className="bet-row">
-              <label className="bet-input">
-                <span>$</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min={MIN_BET_USD}
-                  max={maxBet}
-                  step="1"
-                  value={bet}
-                  aria-label="Bet amount in dollars"
-                  onChange={(e) => setBet(clampBet(Number(e.target.value), maxBet))}
-                  disabled={busy}
-                />
-              </label>
-              {[5, 10, 25, 50].filter((v) => v <= maxBet).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className="chip"
-                  aria-pressed={bet === v}
-                  onClick={() => setBet(v)}
-                  disabled={busy}
-                >
-                  ${v}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="field">
-            <span className="label">Settles within</span>
-            <div className="chips">
-              {(Object.keys(HORIZONS) as HorizonKey[]).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  className="chip"
-                  aria-pressed={horizon === key}
-                  onClick={() => setHorizon(key)}
-                  disabled={busy}
-                >
-                  {HORIZONS[key].label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="field">
-            <span className="label">Category</span>
-            <div className="chips">
-              {(Object.keys(CATEGORIES) as CategoryKey[]).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  className="chip"
-                  aria-pressed={category === key}
-                  onClick={() => setCategory(key)}
-                  disabled={busy}
-                >
-                  {CATEGORIES[key].emoji} {CATEGORIES[key].label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <button type="button" className="lever" onClick={pull} disabled={busy}>
-            {phase === "screening"
-              ? "Screening books…"
-              : phase === "spinning"
-                ? "Spinning…"
-                : "Pull the lever"}
-          </button>
-        </div>
-      </section>
-
-      {error && (
-        <div className="banner bad" role="status">
-          {error}
-        </div>
-      )}
-
-      {phase === "result" && result && points && tier && (
-        <section className="result">
-          <div className="result-head">
-            <span
-              className="tier-badge"
-              style={{ background: tier.glow, color: tier.accent, border: `1px solid ${tier.accent}` }}
-            >
-              {tier.label}
-            </span>
-            <span className="points">+{points.total.toLocaleString("en-US")} pts</span>
-          </div>
-
-          <div className="grid">
-            <Cell k="You'd buy" v={result.outcome.label} />
-            <Cell k="At" v={`${(result.quote.expectedAvgPrice * 100).toFixed(1)}¢`} />
-            <Cell k="Shares" v={result.quote.expectedShares.toFixed(2)} />
-            <Cell k="Pays if right" v={`$${result.quote.payoutIfWin.toFixed(2)}`} good />
-            <Cell k="Price cap" v={`${(result.quote.limitPrice * 100).toFixed(0)}¢`} />
-            <Cell k="Spread" v={`${(result.evaluation.metrics.spreadCents ?? 0).toFixed(1)}¢`} />
-            <Cell
-              k="Slippage"
-              v={`${(result.evaluation.fill?.slippageCents ?? 0).toFixed(2)}¢`}
-            />
-            <Cell k="Book" v={bookGrade(result.evaluation.score)} />
-          </div>
-
-          {points.notes.length > 0 && (
-            <div className="notes">
-              {points.notes.map((n) => (
-                <span className="note" key={n}>
-                  {n}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <div className="actions">
-            <button
-              type="button"
-              className="btn primary"
-              onClick={placeBet}
-              disabled={fixtureMode || execPhase === "signing" || execPhase === "done"}
-            >
-              {execPhase === "signing"
-                ? "Waiting for signature…"
-                : execPhase === "done"
-                  ? "Bet placed ✓"
-                  : wallet
-                    ? `Take the bet · $${result.betUsd.toFixed(2)}`
-                    : "Connect wallet to take it"}
-            </button>
-            {shareUrl && (
-              <a className="btn" href={shareUrl} target="_blank" rel="noreferrer">
-                Share card ↗
-              </a>
-            )}
-            <button type="button" className="btn" onClick={pull} disabled={busy}>
-              Spin again
-            </button>
-          </div>
-
-          {execMessage && (
-            <div className={`banner ${execPhase === "error" ? "bad" : ""}`} role="status">
-              {execMessage}
-            </div>
-          )}
-
-          <details className="working">
-            <summary>How the machine picked this ({result.screening.eligible} bets qualified)</summary>
-            <div className="funnel">
-              <FunnelRow label="Markets matching your filters" n={result.screening.fetched} />
-              <FunnelRow label="Sides screened (Yes + No)" n={result.screening.booksChecked} />
-              <FunnelRow label="Sides that passed" n={result.screening.eligible} />
-              {Object.entries(result.screening.rejections)
-                .sort((a, b) => b[1] - a[1])
-                .map(([reason, count]) => (
-                  <FunnelRow key={reason} label={`rejected — ${reason}`} n={count} />
-                ))}
-            </div>
-            <div className="rules">
-              Every candidate had to clear all of: spread ≤ {rules.maxSpreadCents}¢, no more than{" "}
-              {rules.maxSlippageCents}¢ of slippage on your ${result.betUsd.toFixed(0)}, a price
-              between {Math.round(rules.minPrice * 100)}¢ and {Math.round(rules.maxPrice * 100)}¢,
-              at least ${rules.minVolume24hUsd.toLocaleString("en-US")} of 24h volume, and{" "}
-              {rules.minDepthMultiple}× your bet resting near the touch. The pick is then weighted
-              toward the healthiest books.
-            </div>
-          </details>
-        </section>
-      )}
-
-      {screening && !result && (
-        <details className="working" open>
-          <summary>Why nothing qualified</summary>
-          <div className="funnel">
-            <FunnelRow label="Markets matching your filters" n={screening.fetched} />
-            <FunnelRow label="Sides screened (Yes + No)" n={screening.booksChecked} />
-            {Object.entries(screening.rejections)
-              .sort((a, b) => b[1] - a[1])
-              .map(([reason, count]) => (
-                <FunnelRow key={reason} label={`rejected — ${reason}`} n={count} />
-              ))}
-          </div>
-        </details>
-      )}
-    </>
-  );
-}
-
-function Cell({ k, v, good }: { k: string; v: string; good?: boolean }) {
-  return (
-    <div className="cell">
-      <div className="k">{k}</div>
-      <div className={`v${good ? " good" : ""}`}>{v}</div>
-    </div>
-  );
-}
-
-function FunnelRow({ label, n }: { label: string; n: number }) {
-  return (
-    <div className="funnel-row">
-      <span>{label}</span>
-      <span className="n">{n}</span>
-    </div>
-  );
-}
-
-interface WalletBarProps {
-  wallet: Connection | null;
-  mode: WalletMode;
-  setMode: (m: WalletMode) => void;
-  funder: string;
-  setFunder: (f: string) => void;
-  onConnect: () => void;
-  error: string | null;
-  totalPoints: number;
-  streak: number;
-  disabled: boolean;
-}
-
-function WalletBar({
-  wallet,
-  mode,
-  setMode,
-  funder,
-  setFunder,
-  onConnect,
-  error,
-  totalPoints,
-  streak,
-  disabled,
-}: WalletBarProps) {
-  const [canConnect, setCanConnect] = useState(false);
-  // Checked after mount: the server has no idea whether a wallet is installed,
-  // and rendering the answer directly would mismatch on hydration.
-  useEffect(() => setCanConnect(hasInjectedWallet()), []);
-
-  return (
-    <>
       <div className="wallet-bar">
         {wallet ? (
           <>
@@ -565,7 +319,7 @@ function WalletBar({
             {mode !== "eoa" && (
               <input
                 className="funder-input"
-                placeholder="0x… your Polymarket wallet address"
+                placeholder="0x… Polymarket wallet address"
                 value={funder}
                 onChange={(e) => setFunder(e.target.value)}
                 aria-label="Polymarket wallet address"
@@ -575,40 +329,365 @@ function WalletBar({
         ) : (
           <button
             type="button"
-            className="btn"
+            className="ghost"
             onClick={onConnect}
-            disabled={disabled || !canConnect}
+            disabled={fixtureMode || !canConnect}
           >
             {canConnect ? "Connect wallet" : "No browser wallet detected"}
           </button>
         )}
-
-        <div style={{ flex: 1 }} />
-
-        <div className="scoreboard">
-          <span>
-            <b>{totalPoints.toLocaleString("en-US")}</b> pts
-          </span>
-          <span>streak {streak}</span>
-        </div>
       </div>
 
-      {error && (
-        <div className="banner bad" role="status">
-          {error}
+      {walletError && <p className="notice bad">{walletError}</p>}
+
+      <section className="machine">
+        <header className="marquee">
+          <div className="bulbs">
+            {Array.from({ length: BULB_COUNT }, (_, i) => (
+              <div
+                key={i}
+                className={`bulb${flashing ? (bulbPos % 2 === 0 ? " on" : "") : (i + bulbPos) % 3 === 0 ? " on" : ""}`}
+              />
+            ))}
+          </div>
+          <h1>POLYMARKET SLOTS</h1>
+          <p>real markets · screened books</p>
+        </header>
+
+        <div className="reels">
+          {[0, 1, 2].map((i) => (
+            <div className="reel" key={i}>
+              <div className="rstrip" ref={stripRefs[i]}>
+                {strips[i].map((cell, n) => (
+                  <ReelCell cell={cell} key={n} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="belly">
+          {phase === "result" && result ? (
+            <>
+              <div className="eyebrow">The machine picked</div>
+              <p className="question">{result.market.question}</p>
+              <div className="meta">
+                settles in <b>{formatHours(result.market.hoursToResolution)}</b> · book{" "}
+                <b>{bookGrade(result.evaluation.score)}</b> ·{" "}
+                <b>{result.quote.multiplier.toFixed(2)}×</b>
+              </div>
+            </>
+          ) : (
+            <div className="idle">
+              {phase === "screening"
+                ? "READING ORDER BOOKS…"
+                : phase === "spinning"
+                  ? "…"
+                  : miss
+                    ? "NO BET CLEARED THE SCREEN"
+                    : "SET YOUR STAKE · PULL THE HANDLE"}
+            </div>
+          )}
+        </div>
+
+        <div className="console">
+          <div className="credits">
+            <span className="k">CREDITS</span>
+            <span className="v">{shownCredits.toLocaleString("en-US")}</span>
+          </div>
+
+          <div>
+            <span className="lab">Stake</span>
+            <div className="row">
+              <label className="stake">
+                <span>$</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min={MIN_BET_USD}
+                  max={maxBet}
+                  step="1"
+                  value={bet}
+                  disabled={busy}
+                  aria-label="Stake in dollars"
+                  onChange={(e) => setBet(clampBet(Number(e.target.value), maxBet))}
+                />
+              </label>
+              {[5, 10, 25, 50].filter((v) => v <= maxBet).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className="key"
+                  aria-pressed={bet === v}
+                  disabled={busy}
+                  onClick={() => setBet(v)}
+                >
+                  ${v}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className="lab">Settles within</span>
+            <div className="row">
+              {(Object.keys(HORIZONS) as HorizonKey[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className="key"
+                  aria-pressed={horizon === k}
+                  disabled={busy}
+                  onClick={() => setHorizon(k)}
+                >
+                  {HORIZONS[k].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className="lab">Category</span>
+            <div className="row scroll">
+              {CATEGORY_ORDER.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className="key"
+                  aria-pressed={category === k}
+                  disabled={busy}
+                  onClick={() => setCategory(k)}
+                >
+                  {CAT_LABEL[k]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button type="button" className="handle" onClick={pull} disabled={busy}>
+            {phase === "screening" ? "SCREENING" : phase === "spinning" ? "SPINNING" : "PULL"}
+          </button>
+        </div>
+      </section>
+
+      {miss && (
+        <>
+          <p className="notice bad">{miss.message}</p>
+          {miss.screening && (
+            <details className="working" open>
+              <summary>What it refused, and why</summary>
+              <Funnel screening={miss.screening} />
+            </details>
+          )}
+        </>
+      )}
+
+      {phase === "result" && result && points && (
+        <>
+          <Ticket result={result} points={points} />
+
+          <div className="after">
+            <button
+              type="button"
+              className="ghost primary"
+              onClick={placeBet}
+              disabled={fixtureMode || execPhase === "signing" || execPhase === "done"}
+            >
+              {execPhase === "signing"
+                ? "Waiting for signature…"
+                : execPhase === "done"
+                  ? "Bet placed ✓"
+                  : wallet
+                    ? `Take it · $${result.betUsd.toFixed(2)}`
+                    : "Connect wallet to take it"}
+            </button>
+            <button type="button" className="ghost" onClick={pull} disabled={busy}>
+              Pull again
+            </button>
+            {shareHref && (
+              <a className="ghost" href={shareHref} target="_blank" rel="noreferrer" style={{ textAlign: "center", textDecoration: "none" }}>
+                Share ticket ↗
+              </a>
+            )}
+          </div>
+
+          {execMessage && (
+            <p className={`notice ${execPhase === "error" ? "bad" : "good"}`} role="status">
+              {execMessage}
+            </p>
+          )}
+
+          <details className="working">
+            <summary>
+              How it landed here — {result.screening.eligible} of {result.screening.booksChecked} bets passed
+            </summary>
+            <Funnel screening={result.screening} />
+            <div className="rules">
+              Every candidate cleared: spread ≤ {rules.maxSpreadCents}¢ · slippage ≤{" "}
+              {rules.maxSlippageCents}¢ on your ${result.betUsd.toFixed(0)} · price{" "}
+              {Math.round(rules.minPrice * 100)}–{Math.round(rules.maxPrice * 100)}¢ · $
+              {rules.minVolume24hUsd.toLocaleString("en-US")}+ daily volume ·{" "}
+              {rules.minDepthMultiple}× your stake resting near the touch. The pick is weighted
+              toward the healthiest books.
+            </div>
+          </details>
+        </>
+      )}
+    </main>
+  );
+}
+
+function ReelCell({ cell }: { cell: Cell }) {
+  if (cell.kind === "icon") {
+    return (
+      <div className="rcell">
+        <CategoryMark category={cell.cat} />
+        <div className="cap">{cell.cap}</div>
+      </div>
+    );
+  }
+  return (
+    <div className={`rcell${cell.tone ? ` ${cell.tone}` : ""}`}>
+      <div className="big">{cell.text}</div>
+      <div className="cap">{cell.cap}</div>
+    </div>
+  );
+}
+
+function Ticket({ result, points }: { result: SpinResult; points: PointsBreakdown }) {
+  const side = result.outcome.label.toUpperCase();
+  const isYes = side === "YES";
+  const q = result.quote;
+
+  return (
+    <article className="ticket">
+      <div className="t-head">
+        <span>Polymarket Slots</span>
+        <span>No. {result.id.slice(0, 4).toUpperCase()}</span>
+      </div>
+
+      <h2 className="t-q">{result.market.question}</h2>
+
+      <div className="t-pick">
+        <span className={`t-side ${isYes ? "yes" : "no"}`}>{side}</span>
+        <span className="t-price">
+          at {Math.round(q.expectedAvgPrice * 100)}¢ · {q.multiplier.toFixed(2)}× your money
+        </span>
+      </div>
+
+      <div className="t-rows">
+        <Row k="Stake" v={`$${result.betUsd.toFixed(2)}`} />
+        <Row k="Returns if right" v={`$${q.payoutIfWin.toFixed(2)}`} win />
+        <Row k="Settles in" v={formatHoursLong(result.market.hoursToResolution)} />
+        <Row
+          k="Spread / slippage"
+          v={`${(result.evaluation.metrics.spreadCents ?? 0).toFixed(1)}¢ / ${(result.evaluation.fill?.slippageCents ?? 0).toFixed(2)}¢`}
+        />
+        <Row k="Book grade" v={bookGrade(result.evaluation.score)} />
+      </div>
+
+      {points.notes.length > 0 && (
+        <div className="t-notes">
+          {points.notes.map((n) => (
+            <span className="t-note" key={n}>{n}</span>
+          ))}
         </div>
       )}
-    </>
+
+      <div className="perf" />
+
+      <div className="t-stub">
+        <div className="t-points">
+          POINTS
+          <b>{points.total.toLocaleString("en-US")}</b>
+        </div>
+        <div className="stamp" style={{ color: STAMP_COLOR[points.tier] }}>
+          {points.tier}
+        </div>
+      </div>
+    </article>
   );
+}
+
+const STAMP_COLOR: Record<string, string> = {
+  common: "#6B5B48",
+  rare: "#1B5E8F",
+  epic: "#6B3FA0",
+  legendary: "#A8781A",
+};
+
+function Row({ k, v, win }: { k: string; v: string; win?: boolean }) {
+  return (
+    <div className="t-row">
+      <span className="k">{k}</span>
+      <span className={`v${win ? " win" : ""}`}>{v}</span>
+    </div>
+  );
+}
+
+function Funnel({ screening }: { screening: ScreeningSummary }) {
+  return (
+    <div className="funnel">
+      <FunnelRow label="Markets in your filters" n={screening.fetched} />
+      <FunnelRow label="Sides screened (Yes + No)" n={screening.booksChecked} />
+      <FunnelRow label="Sides that passed" n={screening.eligible} />
+      {Object.entries(screening.rejections)
+        .sort((a, b) => b[1] - a[1])
+        .map(([reason, count]) => (
+          <FunnelRow key={reason} label={`refused — ${reason}`} n={count} />
+        ))}
+    </div>
+  );
+}
+
+function FunnelRow({ label, n }: { label: string; n: number }) {
+  return (
+    <div className="funnel-row">
+      <span>{label}</span>
+      <span className="n">{n}</span>
+    </div>
+  );
+}
+
+/* --- helpers -------------------------------------------------------------- */
+
+function randomCell(which: number): Cell {
+  if (which === 0) {
+    const pool = CATEGORY_ORDER.slice(1);
+    const cat = pool[Math.floor(Math.random() * pool.length)];
+    return { kind: "icon", cat, cap: CAT_LABEL[cat] };
+  }
+  if (which === 1) {
+    const yes = Math.random() < 0.5;
+    return { kind: "text", text: yes ? "YES" : "NO", cap: "side", tone: yes ? "yes" : "no" };
+  }
+  return { kind: "text", text: `${SPIN_PRICES[Math.floor(Math.random() * SPIN_PRICES.length)]}¢`, cap: "price" };
+}
+
+function fillCells(which: number, n: number): Cell[] {
+  return Array.from({ length: n }, () => randomCell(which));
+}
+
+function wait(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
 function clampBet(value: number, max: number): number {
   if (!Number.isFinite(value)) return MIN_BET_USD;
-  return Math.min(Math.max(value, MIN_BET_USD), max);
+  return Math.min(Math.max(Math.round(value), MIN_BET_USD), max);
 }
 
 function formatHours(hours: number): string {
   if (hours < 1) return "<1h";
   if (hours < 48) return `${Math.round(hours)}h`;
   return `${Math.round(hours / 24)}d`;
+}
+
+function formatHoursLong(hours: number): string {
+  if (hours < 48) return `${Math.round(hours)} hours`;
+  return `${Math.round(hours / 24)} days`;
 }

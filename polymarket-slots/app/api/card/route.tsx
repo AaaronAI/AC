@@ -1,27 +1,75 @@
 import { ImageResponse } from "next/og";
 
-import { CATEGORIES } from "@/lib/config";
 import { TIER_STYLE, decodeCard } from "@/lib/share";
 
 /**
- * The shareable card, rendered as a PNG so it unfurls in Slack, Discord, and
- * anywhere else that previews links. Contents come entirely from the `d` query
- * param — see lib/share.ts.
+ * The ticket as a PNG, so a shared link unfurls into the same object people
+ * see in the machine. Contents come entirely from the `d` query param — see
+ * lib/share.ts.
  */
 
 export const dynamic = "force-dynamic";
 
+const STAMP_COLOR: Record<string, string> = {
+  common: "#6B5B48",
+  rare: "#1B5E8F",
+  epic: "#6B3FA0",
+  legendary: "#A8781A",
+};
+
+/**
+ * Pulled over HTTP from our own /public rather than off disk: Node's fetch
+ * can't read file:// URLs, and reading by path isn't reliable once the route
+ * is bundled for serverless. The platforms cache OG images, so the extra hop
+ * costs a cold render at most.
+ */
+async function loadFonts(requestUrl: string) {
+  const grab = async (file: string) => {
+    const res = await fetch(new URL(`/fonts/${file}`, requestUrl));
+    if (!res.ok) throw new Error(`font ${file} responded ${res.status}`);
+    const buf = await res.arrayBuffer();
+
+    // Satori parses sfnt directly and cannot read WOFF2. A bad font throws
+    // *during* rendering, too late for the caller's try/catch to fall back —
+    // so reject it here, while falling back is still possible.
+    const sig = new Uint8Array(buf.slice(0, 4));
+    const ok =
+      (sig[0] === 0x00 && sig[1] === 0x01 && sig[2] === 0x00 && sig[3] === 0x00) ||
+      String.fromCharCode(...sig) === "true" ||
+      String.fromCharCode(...sig) === "OTTO";
+    if (!ok) throw new Error(`font ${file} is not a usable sfnt`);
+    return buf;
+  };
+
+  // .ttf, not the .woff2 the stylesheet uses — see above.
+  const [slab, mono] = await Promise.all([
+    grab("alfa-slab-one-400.ttf"),
+    grab("dm-mono-500.ttf"),
+  ]);
+
+  return [
+    { name: "Slab", data: slab, weight: 400 as const, style: "normal" as const },
+    { name: "Mono", data: mono, weight: 500 as const, style: "normal" as const },
+  ];
+}
+
 export async function GET(request: Request) {
   const encoded = new URL(request.url).searchParams.get("d");
   const card = encoded ? decodeCard(encoded) : null;
+  if (!card) return new Response("Bad card data", { status: 400 });
 
-  if (!card) {
-    return new Response("Bad card data", { status: 400 });
-  }
-
-  const tier = TIER_STYLE[card.t];
-  const category = CATEGORIES[card.c] ?? CATEGORIES.any;
+  const isYes = card.o.toUpperCase() === "YES";
   const multiplier = card.p > 0 ? 1 / card.p : 0;
+  const stamp = STAMP_COLOR[card.t] ?? STAMP_COLOR.common;
+
+  let fonts;
+  try {
+    fonts = await loadFonts(request.url);
+  } catch (err) {
+    // Fall back to the built-in face rather than failing the unfurl outright.
+    console.warn("OG fonts unavailable, falling back", err);
+    fonts = undefined;
+  }
 
   return new ImageResponse(
     (
@@ -30,109 +78,144 @@ export async function GET(request: Request) {
           width: "100%",
           height: "100%",
           display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          background: "#0b0f16",
-          backgroundImage: `radial-gradient(900px 500px at 80% -10%, ${tier.glow}, transparent 70%)`,
-          padding: "56px 64px",
-          color: "#e8eef7",
-          fontFamily: "sans-serif",
-          border: `3px solid ${tier.accent}`,
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#1A0A0D",
+          padding: 46,
+          fontFamily: "Mono",
         }}
       >
-        {/* Header: rarity + category */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        {/* the ticket */}
+        <div
+          style={{
+            flex: 1,
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            background: "#F5EFE1",
+            borderRadius: 8,
+            padding: "34px 44px",
+            color: "#241A12",
+          }}
+        >
           <div
             style={{
               display: "flex",
-              alignItems: "center",
-              fontSize: 26,
-              letterSpacing: 4,
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              borderBottom: "3px solid #241A12",
+              paddingBottom: 14,
+              fontSize: 20,
+              letterSpacing: 3,
+              color: "#6B5B48",
               textTransform: "uppercase",
-              color: tier.accent,
-              fontWeight: 700,
             }}
           >
-            {tier.label} pull
+            <span>Polymarket Slots</span>
+            <span>{card.h <= 24 ? "settles today" : `settles in ${Math.round(card.h)}h`}</span>
           </div>
-          {/* Label only, no emoji: satori's bundled font has no emoji glyphs,
-              and supplying them would mean fetching from an external CDN. */}
-          <div style={{ display: "flex", fontSize: 26, color: "#8aa0b8" }}>{category.label}</div>
-        </div>
 
-        {/* The market */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", fontSize: 20, color: "#8aa0b8", letterSpacing: 3 }}>
-            THE MACHINE PICKED
-          </div>
           <div
             style={{
               display: "flex",
-              fontSize: card.q.length > 70 ? 46 : 56,
+              fontSize: card.q.length > 68 ? 42 : 52,
               fontWeight: 700,
-              lineHeight: 1.15,
-              marginTop: 14,
+              lineHeight: 1.2,
+              marginTop: 26,
+              fontFamily: "Slab",
             }}
           >
             {card.q}
           </div>
-          <div style={{ display: "flex", alignItems: "center", marginTop: 26, fontSize: 34 }}>
+
+          <div style={{ display: "flex", alignItems: "center", marginTop: 26 }}>
             <span
               style={{
                 display: "flex",
-                background: tier.accent,
-                color: "#0b0f16",
-                padding: "6px 20px",
-                borderRadius: 999,
-                fontWeight: 700,
+                background: isYes ? "#1B7F52" : "#B8332A",
+                color: "#F5EFE1",
+                padding: "6px 24px",
+                borderRadius: 5,
+                fontSize: 38,
+                fontFamily: "Slab",
+                letterSpacing: 2,
               }}
             >
-              {card.o}
+              {card.o.toUpperCase()}
             </span>
-            <span style={{ display: "flex", marginLeft: 20, color: "#8aa0b8" }}>
-              at {Math.round(card.p * 100)}¢ · {multiplier.toFixed(2)}x
+            <span style={{ display: "flex", marginLeft: 20, fontSize: 30, color: "#6B5B48" }}>
+              at {Math.round(card.p * 100)}¢ · {multiplier.toFixed(2)}× your money
             </span>
           </div>
-        </div>
 
-        {/* Footer stats */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div style={{ display: "flex" }}>
-            <Stat label="STAKE" value={`$${card.b.toFixed(2)}`} />
-            <Stat label="PAYOUT" value={`$${card.w.toFixed(2)}`} />
-            <Stat label="BOOK" value={card.g} />
-            <Stat label="SETTLES" value={card.h <= 24 ? "<24h" : `${Math.round(card.h)}h`} />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-            <div style={{ display: "flex", fontSize: 20, color: "#8aa0b8", letterSpacing: 3 }}>
-              POINTS
+          <div style={{ display: "flex", flex: 1 }} />
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-end",
+              borderTop: "3px dashed rgba(36,26,18,0.35)",
+              paddingTop: 22,
+            }}
+          >
+            <div style={{ display: "flex" }}>
+              <Stat label="STAKE" value={`$${card.b.toFixed(2)}`} />
+              <Stat label="RETURNS" value={`$${card.w.toFixed(2)}`} />
+              <Stat label="BOOK" value={card.g} />
             </div>
-            <div
-              style={{
-                display: "flex",
-                fontSize: 72,
-                fontWeight: 700,
-                color: tier.accent,
-                lineHeight: 1,
-              }}
-            >
-              {card.pts.toLocaleString("en-US")}
+
+            <div style={{ display: "flex", alignItems: "flex-end" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                <div style={{ display: "flex", fontSize: 18, letterSpacing: 3, color: "#6B5B48" }}>
+                  POINTS
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    fontSize: 68,
+                    fontFamily: "Slab",
+                    lineHeight: 1,
+                    marginTop: 4,
+                  }}
+                >
+                  {card.pts.toLocaleString("en-US")}
+                </div>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  marginLeft: 26,
+                  marginBottom: 8,
+                  border: `4px solid ${stamp}`,
+                  color: stamp,
+                  borderRadius: 7,
+                  padding: "8px 18px",
+                  fontSize: 26,
+                  fontFamily: "Slab",
+                  letterSpacing: 3,
+                  textTransform: "uppercase",
+                  transform: "rotate(-7deg)",
+                }}
+              >
+                {TIER_STYLE[card.t].label}
+              </div>
             </div>
           </div>
         </div>
       </div>
     ),
-    { width: 1200, height: 630 },
+    { width: 1200, height: 630, fonts },
   );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", marginRight: 48 }}>
-      <div style={{ display: "flex", fontSize: 18, color: "#8aa0b8", letterSpacing: 3 }}>
+    <div style={{ display: "flex", flexDirection: "column", marginRight: 54 }}>
+      <div style={{ display: "flex", fontSize: 18, letterSpacing: 3, color: "#6B5B48" }}>
         {label}
       </div>
-      <div style={{ display: "flex", fontSize: 36, fontWeight: 700, marginTop: 6 }}>{value}</div>
+      <div style={{ display: "flex", fontSize: 38, marginTop: 6, fontFamily: "Slab" }}>{value}</div>
     </div>
   );
 }

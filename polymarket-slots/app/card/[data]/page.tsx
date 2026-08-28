@@ -1,23 +1,29 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { CATEGORIES } from "@/lib/config";
 import { TIER_STYLE, decodeCard } from "@/lib/share";
 
 /**
- * The standalone share card. Its entire contents live in the URL segment, so
- * these links keep working with no database behind them.
+ * The shared ticket. Its entire contents live in the URL segment, so these
+ * links keep working with no database behind them.
  */
 
 type Props = { params: Promise<{ data: string }> };
+
+const STAMP_COLOR: Record<string, string> = {
+  common: "#6B5B48",
+  rare: "#1B5E8F",
+  epic: "#6B3FA0",
+  legendary: "#A8781A",
+};
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { data } = await params;
   const card = decodeCard(data);
   if (!card) return { title: "Polymarket Slots" };
 
-  const title = `${TIER_STYLE[card.t].label} pull · ${card.pts.toLocaleString("en-US")} pts`;
-  const description = `${card.o} at ${Math.round(card.p * 100)}¢ on "${card.q}" — $${card.b.toFixed(2)} to win $${card.w.toFixed(2)}.`;
+  const title = `${card.o} at ${Math.round(card.p * 100)}¢ — ${card.pts.toLocaleString("en-US")} pts`;
+  const description = `"${card.q}" — $${card.b.toFixed(2)} returns $${card.w.toFixed(2)}. ${TIER_STYLE[card.t].label} pull.`;
   const image = `/api/card?d=${encodeURIComponent(data)}`;
 
   return {
@@ -33,84 +39,70 @@ export default async function CardPage({ params }: Props) {
   const card = decodeCard(data);
   if (!card) notFound();
 
-  const tier = TIER_STYLE[card.t];
-  const category = CATEGORIES[card.c] ?? CATEGORIES.any;
+  const isYes = card.o.toUpperCase() === "YES";
   const multiplier = card.p > 0 ? 1 / card.p : 0;
 
   return (
-    <main className="card-page">
-      <article
-        className="share-card"
-        style={{
-          border: `2px solid ${tier.accent}`,
-          boxShadow: `0 30px 90px ${tier.glow}`,
-        }}
-      >
-        <div className="share-row">
-          <span
-            className="tier-badge"
-            style={{ background: tier.glow, color: tier.accent, border: `1px solid ${tier.accent}` }}
+    <main className="room" style={{ display: "grid", placeItems: "center", minHeight: "100vh" }}>
+      <div style={{ width: "100%" }}>
+        <article className="ticket" style={{ marginTop: 0 }}>
+          <div className="t-head">
+            <span>Polymarket Slots</span>
+            <span>{card.h <= 24 ? "settles today" : `settles in ${Math.round(card.h)}h`}</span>
+          </div>
+
+          <h1 className="t-q">{card.q}</h1>
+
+          <div className="t-pick">
+            <span className={`t-side ${isYes ? "yes" : "no"}`}>{card.o.toUpperCase()}</span>
+            <span className="t-price">
+              at {Math.round(card.p * 100)}¢ · {multiplier.toFixed(2)}× your money
+            </span>
+          </div>
+
+          <div className="t-rows">
+            <div className="t-row">
+              <span className="k">Stake</span>
+              <span className="v">${card.b.toFixed(2)}</span>
+            </div>
+            <div className="t-row">
+              <span className="k">Returns if right</span>
+              <span className="v win">${card.w.toFixed(2)}</span>
+            </div>
+            <div className="t-row">
+              <span className="k">Book grade</span>
+              <span className="v">{card.g}</span>
+            </div>
+          </div>
+
+          <div className="perf" />
+
+          <div className="t-stub">
+            <div className="t-points">
+              POINTS
+              <b>{card.pts.toLocaleString("en-US")}</b>
+            </div>
+            <div className="stamp" style={{ color: STAMP_COLOR[card.t] }}>
+              {TIER_STYLE[card.t].label}
+            </div>
+          </div>
+        </article>
+
+        <div className="after">
+          <a
+            className="ghost primary"
+            href="/"
+            style={{ textAlign: "center", textDecoration: "none" }}
           >
-            {tier.label} pull
-          </span>
-          <span style={{ color: "var(--text-dim)", fontSize: 14 }}>
-            {category.emoji} {category.label}
-          </span>
+            Pull your own handle →
+          </a>
         </div>
 
-        <h1 className="q">{card.q}</h1>
-
-        <div className="share-row">
-          <span
-            className="tier-badge"
-            style={{ background: tier.accent, color: "#0b0f16", fontSize: 13 }}
-          >
-            {card.o}
-          </span>
-          <span style={{ color: "var(--text-dim)", fontFamily: "var(--mono)" }}>
-            {Math.round(card.p * 100)}¢ · {multiplier.toFixed(2)}x
-          </span>
-        </div>
-
-        <div className="grid" style={{ borderRadius: 10, overflow: "hidden" }}>
-          <Cell k="Stake" v={`$${card.b.toFixed(2)}`} />
-          <Cell k="Pays" v={`$${card.w.toFixed(2)}`} />
-          <Cell k="Book" v={card.g} />
-          <Cell k="Settles" v={card.h <= 24 ? "<24h" : `${Math.round(card.h)}h`} />
-        </div>
-
-        <div className="share-row">
-          <span style={{ color: "var(--text-faint)", fontSize: 12, letterSpacing: 2 }}>POINTS</span>
-          <span
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 40,
-              fontWeight: 800,
-              color: tier.accent,
-            }}
-          >
-            {card.pts.toLocaleString("en-US")}
-          </span>
-        </div>
-      </article>
-
-      <a className="btn" href="/">
-        Pull your own lever →
-      </a>
-
-      <p className="footnote">
-        Polymarket Slots picks a random market that passed an order-book screen. Card data is
-        encoded in this link — nothing is stored on a server.
-      </p>
+        <p className="rules" style={{ padding: "14px 2px 0", textAlign: "center" }}>
+          The machine only lands on markets that passed an order-book screen. This ticket is
+          encoded in the link — nothing is stored on a server.
+        </p>
+      </div>
     </main>
-  );
-}
-
-function Cell({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="cell">
-      <div className="k">{k}</div>
-      <div className="v">{v}</div>
-    </div>
   );
 }

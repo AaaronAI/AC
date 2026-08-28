@@ -32,6 +32,22 @@ matched, how many sides were screened, and exactly which rule rejected the rest.
 
 Tune all of it in [`lib/config.ts`](lib/config.ts).
 
+## Look and feel
+
+A vintage cabinet rather than a dark-mode web app: oxblood and brass, cream reel
+faces with dark symbols, `Alfa Slab One` on the marquee and `DM Mono` for every
+readout. The three reels land **one at a time** — the pause between them is the
+only reason a slot machine feels like anything — and the result prints as a
+perforated betting slip, which is the object people actually screenshot.
+
+Reel symbols are drawn SVG (`components/CategoryMark.tsx`), not emoji, so they
+render identically everywhere. Fonts are self-hosted from `public/fonts`, so
+there's no build-time or runtime dependency on a font CDN. The share PNG needs
+`.ttf` rather than `.woff2` — satori parses sfnt directly and can't read WOFF2.
+
+The design deliberately commits to one look instead of following the viewer's
+theme, so every colour is painted explicitly.
+
 ## Running it
 
 ```bash
