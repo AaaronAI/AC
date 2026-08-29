@@ -142,6 +142,27 @@ To use your own images, drop files in `public/reels/` and list them in
 [`lib/reels.ts`](lib/reels.ts) — see [`public/reels/README.md`](public/reels/README.md).
 Worth reading the caution there before putting a real face on a reel.
 
+## The background
+
+Behind the cabinet is a field of live probability traces — the shape a
+prediction market actually makes: quiet wandering, punctuated by a sharp step
+when news lands. It's the most recognisable image in this world, so it earns the
+background rather than decorating it. Lit dots mark "now" at the right edge.
+
+It stays deliberately quiet, and it answers the machine: landing longer odds
+kicks the traces upward and brightens them for a second, so the ambience is
+loudest exactly when a pull is worth filming. It respects
+`prefers-reduced-motion` (drawn once, no animation) and stops entirely on a
+hidden tab. See [`lib/probabilityField.ts`](lib/probabilityField.ts).
+
+Tickets carry a **price-history sparkline** for the side you bought, which is
+what turns "you bought NO at 38¢" into something that looks like it came off a
+terminal. Live, that's Polymarket's `/prices-history`; in fixture mode it's
+synthesised deterministically. It's strictly decorative — every failure path
+degrades to a ticket without one rather than costing you a pull. The history
+rides in the share URL as two-digit cents, so shared tickets keep their chart
+for about 56 extra characters.
+
 ## Who holds the shares
 
 **Nobody here does.** This is deliberate and it's the most important design

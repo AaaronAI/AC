@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { TIER_STYLE, decodeCard } from "@/lib/share";
+import { TIER_STYLE, decodeCard, decodeHistory } from "@/lib/share";
+
+import { Sparkline } from "@/components/Sparkline";
 
 /**
  * The shared ticket. Its entire contents live in the URL segment, so these
@@ -59,6 +61,8 @@ export default async function CardPage({ params }: Props) {
               at {Math.round(card.p * 100)}¢ · {multiplier.toFixed(2)}× your money
             </span>
           </div>
+
+          <Sparkline values={decodeHistory(card.s)} tone={isYes ? "yes" : "no"} />
 
           <div className="t-rows">
             <div className="t-row">

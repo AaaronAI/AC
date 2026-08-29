@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 
-import { TIER_STYLE, decodeCard } from "@/lib/share";
+import { sparklinePath } from "@/lib/history";
+import { TIER_STYLE, decodeCard, decodeHistory } from "@/lib/share";
 
 /**
  * The ticket as a PNG, so a shared link unfurls into the same object people
@@ -61,6 +62,8 @@ export async function GET(request: Request) {
   const isYes = card.o.toUpperCase() === "YES";
   const multiplier = card.p > 0 ? 1 / card.p : 0;
   const stamp = STAMP_COLOR[card.t] ?? STAMP_COLOR.common;
+  const history = decodeHistory(card.s);
+  const sparkD = history.length > 1 ? sparklinePath(history, 1000, 76) : "";
 
   let fonts;
   try {
@@ -118,17 +121,17 @@ export async function GET(request: Request) {
           <div
             style={{
               display: "flex",
-              fontSize: card.q.length > 68 ? 42 : 52,
+              fontSize: card.q.length > 68 ? 38 : 46,
               fontWeight: 700,
-              lineHeight: 1.2,
-              marginTop: 26,
+              lineHeight: 1.18,
+              marginTop: 18,
               fontFamily: "Slab",
             }}
           >
             {card.q}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", marginTop: 26 }}>
+          <div style={{ display: "flex", alignItems: "center", marginTop: 18 }}>
             <span
               style={{
                 display: "flex",
@@ -147,6 +150,21 @@ export async function GET(request: Request) {
               at {Math.round(card.p * 100)}¢ · {multiplier.toFixed(2)}× your money
             </span>
           </div>
+
+          {sparkD ? (
+            <div style={{ display: "flex", marginTop: 16 }}>
+              <svg width={1000} height={76} viewBox="0 0 1000 76">
+                <path
+                  d={sparkD}
+                  fill="none"
+                  stroke={isYes ? "#1B7F52" : "#B8332A"}
+                  strokeWidth={4}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          ) : null}
 
           <div style={{ display: "flex", flex: 1 }} />
 

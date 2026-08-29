@@ -4,6 +4,7 @@ import {
   MAX_BOOKS_PER_SPIN,
 } from "./config.ts";
 import { evaluate } from "./eligibility.ts";
+import { fetchHistory } from "./history.ts";
 import { round, roundUpToTick } from "./orderbook.ts";
 import { hashSeed, mulberry32, weightedPick } from "./rng.ts";
 import { getBooks, getMarkets } from "./source.ts";
@@ -98,6 +99,10 @@ export async function spin(opts: SpinOptions): Promise<SpinResult> {
   const picked = weightedPick(candidates, (c) => c.evaluation.score, rand);
   if (!picked) throw new NoEligibleMarketsError(screening);
 
+  // Decorative, and explicitly not allowed to fail the pull.
+  const quote = buildQuote(picked, betUsd);
+  const history = await fetchHistory(picked.outcome.tokenId, quote.expectedAvgPrice).catch(() => []);
+
   return {
     id: newSpinId(),
     betUsd,
@@ -106,7 +111,8 @@ export async function spin(opts: SpinOptions): Promise<SpinResult> {
     market: picked.market,
     outcome: picked.outcome,
     evaluation: picked.evaluation,
-    quote: buildQuote(picked, betUsd),
+    quote,
+    history,
     screening,
     reelFiller: buildReelFiller(candidates, picked.market.id),
     createdAt: new Date(now).toISOString(),

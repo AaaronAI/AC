@@ -58,12 +58,38 @@ body {
   min-height: 100vh;
   background: var(--room);
   background-image:
-    radial-gradient(120% 80% at 50% -10%, var(--room-2), transparent 60%),
-    radial-gradient(60% 50% at 50% 110%, rgba(201,162,39,0.10), transparent 70%);
+    radial-gradient(120% 80% at 50% -10%, var(--room-2), transparent 62%),
+    radial-gradient(70% 55% at 50% 108%, rgba(201, 162, 39, 0.12), transparent 72%);
   background-attachment: fixed;
   color: var(--cream);
   font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* The ambient probability field sits behind everything and takes no input. */
+.field {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  /* Quiet enough to read as texture, not as a chart competing for attention. */
+  opacity: 0.9;
+}
+
+/* Everything else rides above it. */
+.room,
+.card-page {
+  position: relative;
+  z-index: 1;
+}
+
+/* The cabinet is opaque, so the field reads as depth behind it rather than
+   showing through and muddying the artwork. */
+.machine {
+  position: relative;
+  isolation: isolate;
 }
 
 .room { max-width: 560px; margin: 0 auto; padding: 22px 16px 64px; }
@@ -622,4 +648,27 @@ details.tuning[open] summary { border-bottom: 1px solid rgba(201, 162, 39, 0.2);
   object-fit: cover;
   border-radius: 4px;
   box-shadow: 0 1px 4px rgba(36, 26, 18, 0.35);
+}
+
+/* --- price history on the ticket ------------------------------------------ */
+
+.spark { margin-top: 15px; }
+
+.spark svg {
+  display: block;
+  width: 100%;
+  height: 44px;
+  /* A hairline baseline so the curve sits on something. */
+  border-bottom: 1px solid rgba(36, 26, 18, 0.18);
+}
+
+.spark-legend {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-top: 5px;
 }

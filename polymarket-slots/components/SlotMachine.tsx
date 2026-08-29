@@ -13,7 +13,7 @@ import {
   SPREAD_OPTIONS,
 } from "@/lib/config";
 import { bookGrade, computePoints, type PointsBreakdown } from "@/lib/points";
-import { encodeCard } from "@/lib/share";
+import { encodeCard, encodeHistory } from "@/lib/share";
 import type { CategoryKey, HorizonKey, Rules, ScreeningSummary, SpinResult } from "@/lib/types";
 
 import {
@@ -27,7 +27,9 @@ import {
 } from "@/lib/reels";
 
 import { CategoryMark } from "./CategoryMark";
+import { surgeField } from "./ProbabilityField";
 import { MarketMark, MemeMark } from "./ReelSymbols";
+import { Sparkline } from "./Sparkline";
 
 type Phase = "idle" | "screening" | "spinning" | "result";
 type ExecPhase = "idle" | "signing" | "done" | "error";
@@ -203,6 +205,11 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
       });
       setStreak((s) => s + 1);
 
+      // The background answers the machine: a longer shot moves it more, so the
+      // ambience is loudest exactly when the pull is worth filming.
+      const odds = held.result.quote.multiplier;
+      surgeField(Math.min(1, 0.25 + (odds - 1) / 6));
+
       if (held.points.tier === "epic" || held.points.tier === "legendary") {
         setFlashing(true);
         setTimeout(() => setFlashing(false), 900);
@@ -323,6 +330,7 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
           g: bookGrade(result.evaluation.score),
           h: result.market.hoursToResolution,
           c: result.market.category,
+          s: encodeHistory(result.history),
         })}`
       : null;
 
@@ -700,6 +708,8 @@ function Ticket({ result, points }: { result: SpinResult; points: PointsBreakdow
           at {Math.round(q.expectedAvgPrice * 100)}¢ · {q.multiplier.toFixed(2)}× your money
         </span>
       </div>
+
+      <Sparkline values={result.history} tone={isYes ? "yes" : "no"} />
 
       <div className="t-rows">
         <Row k="Stake" v={`$${result.betUsd.toFixed(2)}`} />

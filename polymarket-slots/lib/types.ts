@@ -128,6 +128,8 @@ export interface SpinResult {
    * on its way to the result, so what flies past is real and not invented.
    */
   reelFiller: string[];
+  /** Recent prices for the chosen side, 0-1. Empty when unavailable. */
+  history: number[];
   createdAt: string;
 }
 

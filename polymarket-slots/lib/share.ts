@@ -29,6 +29,42 @@ export interface CardPayload {
   /** Hours to resolution at spin time. */
   h: number;
   c: CategoryKey;
+  /**
+   * Price history, as two-digit cents per point ("384142…").
+   * Compact on purpose: this rides in the URL, so 28 points costs 56 chars
+   * rather than the ~200 a JSON array of floats would.
+   */
+  s?: string;
+}
+
+/** How many history points survive into the card. */
+const CARD_POINTS = 28;
+
+/** 0-1 values -> "384142…". Anything unusable encodes to nothing. */
+export function encodeHistory(values: number[]): string {
+  const clean = values.filter((v) => Number.isFinite(v) && v > 0 && v < 1);
+  if (clean.length < 2) return "";
+
+  const picked: number[] = [];
+  for (let i = 0; i < CARD_POINTS; i++) {
+    picked.push(clean[Math.floor((i * (clean.length - 1)) / (CARD_POINTS - 1))]);
+  }
+  return picked
+    .map((v) => String(Math.min(99, Math.max(1, Math.round(v * 100)))).padStart(2, "0"))
+    .join("");
+}
+
+export function decodeHistory(encoded: string | undefined): number[] {
+  if (typeof encoded !== "string" || encoded.length < 4 || encoded.length % 2 !== 0) return [];
+  if (!/^\d+$/.test(encoded)) return [];
+
+  const out: number[] = [];
+  for (let i = 0; i < encoded.length; i += 2) {
+    const cents = Number(encoded.slice(i, i + 2));
+    if (!Number.isFinite(cents) || cents < 1 || cents > 99) return [];
+    out.push(cents / 100);
+  }
+  return out;
 }
 
 const MAX_QUESTION = 110;
@@ -42,6 +78,8 @@ export function encodeCard(payload: CardPayload): string {
     w: round(payload.w, 2),
     h: Math.round(payload.h),
   };
+  // Drop the key entirely when there's no history, rather than carrying "".
+  if (!compact.s) delete compact.s;
   return toBase64Url(JSON.stringify(compact));
 }
 
@@ -68,6 +106,7 @@ export function decodeCard(encoded: string): CardPayload | null {
       g: typeof p.g === "string" ? p.g.slice(0, 3) : "B",
       h: isNum(p.h) ? p.h : 24,
       c: typeof p.c === "string" ? (p.c as CategoryKey) : "any",
+      s: typeof p.s === "string" ? p.s : undefined,
     };
   } catch {
     return null;
