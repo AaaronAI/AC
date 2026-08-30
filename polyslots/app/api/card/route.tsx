@@ -114,7 +114,7 @@ export async function GET(request: Request) {
               textTransform: "uppercase",
             }}
           >
-            <span>Polymarket Slots</span>
+            <span>Polyslots</span>
             <span>{card.h <= 24 ? "settles today" : `settles in ${Math.round(card.h)}h`}</span>
           </div>
 

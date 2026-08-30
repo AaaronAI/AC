@@ -1,9 +1,9 @@
 {
-  "name": "polymarket-slots",
+  "name": "polyslots",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A slot machine for Polymarket. Pull the lever, get a real market with a tight book, take the bet.",
+  "description": "Polyslots — a slot machine for prediction markets. Pull the handle, get a real market with a tight book, take the bet.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

@@ -5,9 +5,9 @@ import ProbabilityField from "@/components/ProbabilityField";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Polymarket Slots",
+  title: "Polyslots",
   description:
-    "Pull the lever, get a real prediction market with a tight order book, and take the bet.",
+    "A slot machine for prediction markets. Pull the handle, get a real market with a tight book, take the bet.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

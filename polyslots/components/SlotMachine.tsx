@@ -37,7 +37,7 @@ type ExecPhase = "idle" | "signing" | "done" | "error";
 /** Reels land one at a time — the gap between them is the anticipation. */
 const REEL_MS = [1500, 2150, 2800];
 const BULB_COUNT = 13;
-const STORAGE_KEY = "polymarket-slots:cabinet";
+const STORAGE_KEY = "polyslots:cabinet";
 
 const CAT_LABEL: Record<CategoryKey, string> = {
   any: "Wildcard",
@@ -391,7 +391,7 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
               />
             ))}
           </div>
-          <h1>POLYMARKET SLOTS</h1>
+          <h1>POLYSLOTS</h1>
           <p>real markets · screened books</p>
         </header>
 
@@ -696,7 +696,7 @@ function Ticket({ result, points }: { result: SpinResult; points: PointsBreakdow
   return (
     <article className="ticket">
       <div className="t-head">
-        <span>Polymarket Slots</span>
+        <span>Polyslots</span>
         <span>No. {result.id.slice(0, 4).toUpperCase()}</span>
       </div>
 

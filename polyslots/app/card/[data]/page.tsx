@@ -22,7 +22,7 @@ const STAMP_COLOR: Record<string, string> = {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { data } = await params;
   const card = decodeCard(data);
-  if (!card) return { title: "Polymarket Slots" };
+  if (!card) return { title: "Polyslots" };
 
   const title = `${card.o} at ${Math.round(card.p * 100)}¢ — ${card.pts.toLocaleString("en-US")} pts`;
   const description = `"${card.q}" — $${card.b.toFixed(2)} returns $${card.w.toFixed(2)}. ${TIER_STYLE[card.t].label} pull.`;
@@ -49,7 +49,7 @@ export default async function CardPage({ params }: Props) {
       <div style={{ width: "100%" }}>
         <article className="ticket" style={{ marginTop: 0 }}>
           <div className="t-head">
-            <span>Polymarket Slots</span>
+            <span>Polyslots</span>
             <span>{card.h <= 24 ? "settles today" : `settles in ${Math.round(card.h)}h`}</span>
           </div>
 

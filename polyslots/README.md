@@ -1,7 +1,7 @@
-# Polymarket Slots
+# Polyslots
 
-A slot machine for prediction markets. Set a bet, pick a couple of filters, pull
-the lever. The machine screens live Polymarket order books, lands on a real
+A slot machine for prediction markets. Set a stake, pick a couple of filters, pull
+the handle. The machine screens live Polymarket order books, lands on a real
 market it thinks you can actually get filled on, and offers you the bet — with a
 hard price cap attached. You get points and a shareable card either way.
 
@@ -205,7 +205,7 @@ renders the page; `/api/card?d=<data>` renders a 1200×630 PNG for link unfurls.
 
 ## Deploying
 
-Vercel, with **root directory set to `polymarket-slots`**. Set `MAX_BET_USD`, and
+Vercel, with **root directory set to `polyslots`**. Set `MAX_BET_USD`, and
 make sure `FIXTURE_MODE` is *not* set in production unless you want a demo build.
 
 ## Layout
