@@ -133,10 +133,18 @@ Left reel is the joke, right reel is the odds; the middle one is the actual bet.
 Neither side reel changes what gets screened — they're the cabinet's artwork, the
 way cherries and BARs are.
 
-The shipped set is drawn, not photographed: the sweater-verse on the left
-(turtleneck, coiled scarf, glass of white, sandworm) and prediction-market
-furniture on the right (probability curve, crystal ball, gavel, dice, a free
-grocery storefront, an empty Oval Office armchair, a covered rent cheque).
+The left reel **lands on the market's actual subject** — a baseball for a
+Yankees strikeout market, a basketball for Lakers/Celtics, a bitcoin for a BTC
+market — falling back to the category's mark when nothing specific matches. See
+[`lib/subject.ts`](lib/subject.ts); when a question names two subjects, whichever
+it leads with wins.
+
+The sweater-verse jokes (turtleneck, coiled scarf, glass of white, sandworm)
+still fly past mid-spin as wilds, but they don't get the payline: a reel that
+stops on a cardigan for a baseball market is showing a joke where it should be
+showing the pick. The right reel pairs the real price with prediction-market
+furniture — probability curve, crystal ball, gavel, dice, a free grocery
+storefront, an empty Oval Office armchair, a covered rent cheque.
 
 To use your own images, drop files in `public/reels/` and list them in
 [`lib/reels.ts`](lib/reels.ts) — see [`public/reels/README.md`](public/reels/README.md).

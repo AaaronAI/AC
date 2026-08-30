@@ -14,6 +14,7 @@ import {
 } from "@/lib/config";
 import { bookGrade, computePoints, type PointsBreakdown } from "@/lib/points";
 import { encodeCard, encodeHistory } from "@/lib/share";
+import { SUBJECT_IDS, SUBJECT_LABEL, subjectFor, type SubjectId } from "@/lib/subject";
 import type { CategoryKey, HorizonKey, Rules, ScreeningSummary, SpinResult } from "@/lib/types";
 
 import {
@@ -26,9 +27,8 @@ import {
   type MemeId,
 } from "@/lib/reels";
 
-import { CategoryMark } from "./CategoryMark";
 import { surgeField } from "./ProbabilityField";
-import { MarketMark, MemeMark } from "./ReelSymbols";
+import { MarketMark, MemeMark, SubjectMark } from "./ReelSymbols";
 import { Sparkline } from "./Sparkline";
 
 type Phase = "idle" | "screening" | "spinning" | "result";
@@ -56,7 +56,7 @@ const CATEGORY_ORDER: CategoryKey[] = [
 const SPIN_PRICES = [12, 23, 31, 38, 44, 49, 53, 58, 63, 67, 72, 81, 88];
 
 type Cell =
-  | { kind: "icon"; cat: CategoryKey; cap: string }
+  | { kind: "subject"; id: SubjectId; cap: string }
   | { kind: "meme"; id: MemeId; cap: string }
   | { kind: "image"; src: string; cap: string }
   | { kind: "market"; id: MarketId; text: string; cap: string }
@@ -64,7 +64,7 @@ type Cell =
 
 /** The resting face, shown before the first pull and after a refusal. */
 const IDLE_FACE: Cell[][] = [
-  [{ kind: "meme", id: "turtleneck", cap: MEME_CAPTIONS.turtleneck }],
+  [{ kind: "subject", id: "dice", cap: SUBJECT_LABEL.dice }],
   [{ kind: "text", text: "?", cap: "side" }],
   [{ kind: "market", id: "odds", text: "––¢", cap: "price" }],
 ];
@@ -268,7 +268,7 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
       const cents = Math.round(spin.quote.expectedAvgPrice * 100);
 
       setStrips([
-        [...fillCells(0, 16), memeCell()],
+        [...fillCells(0, 16), subjectCell(subjectFor(spin.market))],
         [...fillCells(1, 16), { kind: "text", text: side, cap: "side", tone: side === "YES" ? "yes" : "no" }],
         [...fillCells(2, 16), marketCell(`${cents}¢`)],
       ]);
@@ -646,10 +646,10 @@ export default function SlotMachine({ fixtureMode, maxBet, rules }: Props) {
 }
 
 function ReelCell({ cell }: { cell: Cell }) {
-  if (cell.kind === "icon") {
+  if (cell.kind === "subject") {
     return (
       <div className="rcell">
-        <CategoryMark category={cell.cat} />
+        <SubjectMark id={cell.id} />
         <div className="cap">{cell.cap}</div>
       </div>
     );
@@ -795,15 +795,29 @@ function pick<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-/** The left reel's artwork: a drop-in image if you supplied any, else drawn. */
-function memeCell(): Cell {
+/** What the left reel actually stops on: the market's subject. */
+function subjectCell(id: SubjectId): Cell {
   if (MEME_IMAGES.length > 0) return { kind: "image", src: pick(MEME_IMAGES), cap: "" };
-  const id = pick(MEME_IDS);
-  return { kind: "meme", id, cap: MEME_CAPTIONS[id] };
+  return { kind: "subject", id, cap: SUBJECT_LABEL[id] };
+}
+
+/**
+ * Left-reel filler. Mostly subjects so the reel looks like it's cycling a real
+ * symbol set, with the sweater jokes salted through as wilds — they get the
+ * blur, not the payline.
+ */
+function fillerCell(): Cell {
+  if (MEME_IMAGES.length > 0) return { kind: "image", src: pick(MEME_IMAGES), cap: "" };
+  if (Math.random() < 0.3) {
+    const id = pick(MEME_IDS);
+    return { kind: "meme", id, cap: MEME_CAPTIONS[id] };
+  }
+  const id = pick(SUBJECT_IDS);
+  return { kind: "subject", id, cap: SUBJECT_LABEL[id] };
 }
 
 function randomCell(which: number): Cell {
-  if (which === 0) return memeCell();
+  if (which === 0) return fillerCell();
   if (which === 1) {
     const yes = Math.random() < 0.5;
     return { kind: "text", text: yes ? "YES" : "NO", cap: "side", tone: yes ? "yes" : "no" };

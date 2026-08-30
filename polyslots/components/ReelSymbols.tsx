@@ -1,5 +1,6 @@
-import { MARKET_ART, MEME_ART, STROKE, type Glyph } from "@/lib/reelArt";
+import { MARKET_ART, MEME_ART, SUBJECT_ART, STROKE, type Glyph } from "@/lib/reelArt";
 import type { MarketId, MemeId } from "@/lib/reels";
+import type { SubjectId } from "@/lib/subject";
 
 /**
  * Reel artwork, drawn rather than photographed.
@@ -59,4 +60,8 @@ export function MemeMark({ id }: { id: MemeId }) {
 
 export function MarketMark({ id }: { id: MarketId }) {
   return <GlyphSvg glyph={MARKET_ART[id]} />;
+}
+
+export function SubjectMark({ id }: { id: SubjectId }) {
+  return <GlyphSvg glyph={SUBJECT_ART[id]} />;
 }
